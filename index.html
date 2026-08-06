@@ -657,7 +657,10 @@ scenes.forEach((s,i)=>{
 function show(i){
   cur=i;const sc=scenes[i];
   // Render SVG
-  view.innerHTML='<div class="ani">'+sc.build().outerHTML+'</div>';
+  const svg=sc.build();
+  const tmp=document.createElement('div');
+  tmp.appendChild(svg);
+  view.innerHTML='<div class="ani">'+tmp.innerHTML+'</div>';
   // Info
   const inf=sc.info;
   infoEl.innerHTML=`<div class="ani"><h2>${inf.t}</h2><div class="d">${inf.d}</div>${inf.body}</div>`;
