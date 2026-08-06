@@ -23,7 +23,7 @@ svg{display:block;margin:0 auto;max-width:100%;height:auto}
 .step-nav .dot:hover{background:#284868}
 .step-nav .dot.on{background:#086090}
 .step-nav .dot.done{background:#183048}
-.info{max-width:560px;margin:12px auto;padding:14px;background:#0c1018;
+.info{max-width:580px;margin:12px auto;padding:14px;background:#0c1018;
 border:1px solid #182848;border-radius:6px;font-size:13px;line-height:1.6}
 .info h2{color:#2898b8;font-size:15px;margin-bottom:4px}
 .info h3{color:#407090;font-size:13px;margin-top:8px;margin-bottom:2px}
@@ -38,20 +38,12 @@ border-radius:3px;border:1px solid #0a2028}
 @keyframes flowDash{to{stroke-dashoffset:-20}}
 @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
 @keyframes highlight{0%,100%{opacity:.2}50%{opacity:.9}}
-@keyframes growLine{from{stroke-dashoffset:1000}to{stroke-dashoffset:0}}
 .flow-line{stroke-dasharray:8 4;animation:flowDash 1s linear infinite}
 .pulse-ani{animation:pulse 2s ease infinite}
-.highlight-ani{animation:highlight 1.5s ease infinite}
-.grow-ani{animation:growLine 1.5s ease forwards}
-.lbl{font-family:'Segoe UI',system-ui,sans-serif;font-size:11px;fill:#687888}
-.lbl-b{font-weight:600;font-size:12px}
-.lbl-mono{font-family:monospace;font-size:10px;fill:#b0a020}
-.lbl-val{font-family:monospace;font-size:10px;fill:#2090b0}
-.lbl-key{font-weight:700;font-size:11px;fill:#20b898}
 </style>
 </head>
 <body>
-<div class="bar"><div class="t">MMX PoSpace Plot — Reference Spec</div>
+<div class="bar"><div class="t">MMX PoSpace Plot — Reference Spec (k=29)</div>
 <div class="b">
 <button class="btn" id="bp">◀ Prev</button>
 <button class="btn on" id="bpl">▶ Auto</button>
@@ -63,502 +55,578 @@ border-radius:3px;border:1px solid #0a2028}
 <div class="info" id="info"></div>
 
 <script>
-// ===== DATA =====
-const KSIZE=29,LOGBUCKETS=8,N_TABLE=9,N_META=14,N_META_OUT=12;
-const NUM_BUCKETS=256;
-const park_size_y=8192,park_size_pd=2048,park_size_x=2048;
+// ===== CONSTANTS (k=29 SSD) =====
+const KSIZE=29, LOGBUCKETS=6, LOGBUCKETS2=14;
+const NUM_BUCKETS=1<<LOGBUCKETS;        // 64 main buckets
+const NUM_SUBBUCKETS=1<<LOGBUCKETS2;     // 16384 sub-buckets per main bucket
+const N_TABLE=9, N_META=14, N_META_OUT=12;
+const MAX_BS1=(1<<KSIZE)/NUM_BUCKETS*17/16; // ~2,228,224
+const MAX_BS2=(4<<KSIZE)/NUM_BUCKETS/NUM_SUBBUCKETS/3; // ~1365
+const PDSIZE=40, DSIZE=5, PDBYTES=5;
+const XBITS=29, X2BYTES=8, X2SIZE=64, ENTRY_BITS_X=57;
+const park_size_y=8192, park_size_pd=2048, park_size_x=2048;
+
 const entries={1:536870912,2:536872741,3:536850867,4:536853641,5:536829092,
   6:536768040,7:536659701,8:536458310,9:536061737};
 
-const COLORS={Y:'#44ddff',META:'#ffaa44',PD:'#aa44ff',X:'#44ff88',F1:'#ff4466',
+const C={Y:'#44ddff',META:'#ffaa44',PD:'#aa44ff',X:'#44ff88',F1:'#ff4466',
   HDR:'#888899',DISK:'#666688',STREAM:'#ffee44',EDGE:'#2a3858',FLOW:'#ffdd44',
-  BG:'#0a0e1a',PANEL:'#0c1018',TEXT:'#687888',KEY:'#20b898'};
+  PANEL:'#0c1018',TEXT:'#687888',KEY:'#20b898',SUB:'#8844cc'};
 
 // ===== SVG HELPERS =====
-function svgEl(tag,attrs={}){const e=document.createElementNS('http://www.w3.org/2000/svg',tag);
-  for(const[k,v]of Object.entries(attrs))e.setAttribute(k,v);return e;}
-
-function rect(x,y,w,h,fill,opacity=1,stroke=null,sw=1,rx=0){
-  return svgEl('rect',{x,y,width:w,height:h,fill,opacity:opacity<1?opacity:undefined:1,
-    stroke:stroke||'none','stroke-width':sw,rx:rx||0});
-}
-function text(x,y,str,fill='#687888',size=11,weight='normal',anchor='start',mono=false){
-  const t=svgEl('text',{x,y,fill,'font-size':size,'font-weight':weight,'text-anchor':anchor,
-    'font-family':mono?'monospace':'Segoe UI,system-ui,sans-serif'});
-  t.textContent=str;return t;
-}
-function line(x1,y1,x2,y2,stroke='#2a3858',sw=1,opacity=1,dash=null,cssClass=null){
-  const l=svgEl('line',{x1,y1,x2,y2,stroke,'stroke-width':sw,opacity:opacity<1?opacity:undefined:1});
-  if(dash)l.setAttribute('stroke-dasharray',dash);
-  if(cssClass)l.setAttribute('class',cssClass);
-  return l;
-}
+function el(tag,attrs={}){const e=document.createElementNS('http://www.w3.org/2000/svg',tag);
+  for(const[k,v]of Object.entries(attrs)){if(v!==null&&v!==undefined)e.setAttribute(k,v);}return e;}
+function rect(x,y,w,h,fill,op=1,stroke=null,sw=1,rx=0){
+  return el('rect',{x,y,width:w,height:h,fill,opacity:op<1?op:null,stroke:stroke||'none','stroke-width':sw,rx:rx||0});}
+function txt(x,y,str,fill='#687888',size=11,weight='normal',anchor='start',mono=false){
+  const t=el('text',{x,y,fill,'font-size':size,'font-weight':weight,'text-anchor':anchor,
+    'font-family':mono?'monospace':'Segoe UI,system-ui,sans-serif'});t.textContent=str;return t;}
+function line(x1,y1,x2,y2,stroke='#2a3858',sw=1,op=1,dash=null,cls=null){
+  const l=el('line',{x1,y1,x2,y2,stroke,'stroke-width':sw,opacity:op<1?op:null});
+  if(dash)l.setAttribute('stroke-dasharray',dash);if(cls)l.setAttribute('class',cls);return l;}
 function arrow(x1,y1,x2,y2,stroke='#ffdd44',sw=1.5){
-  const g=svgEl('g',{});
-  g.appendChild(line(x1,y1,x2,y2,stroke,sw,null,'flow-line'));
-  const ang=Math.atan2(y2-y1,x2-x1);
-  const ax=x2-Math.cos(ang)*8,ay=y2-Math.sin(ang)*8;
-  g.appendChild(line(x2,y2,ax+Math.cos(ang+Math.PI/2)*4,ay+Math.sin(ang+Math.PI/2)*4,stroke,sw));
-  g.appendChild(line(x2,y2,ax-Math.cos(ang+Math.PI/2)*4,ay-Math.sin(ang+Math.PI/2)*4,stroke,sw));
-  return g;
-}
-function circle(cx,cy,r,fill='#44ddff',opacity=1,stroke=null,sw=1){
-  return svgEl('circle',{cx,cy,r,fill,opacity:opacity<1?opacity:undefined:1,
-    stroke:stroke||'none','stroke-width':sw});
-}
+  const g=el('g');g.appendChild(line(x1,y1,x2,y2,stroke,sw,null,'flow-line'));
+  const a=Math.atan2(y2-y1,x2-x1),ax=x2-Math.cos(a)*8,ay=y2-Math.sin(a)*8;
+  g.appendChild(line(x2,y2,ax+Math.cos(a+Math.PI/2)*4,ay+Math.sin(a+Math.PI/2)*4,stroke,sw));
+  g.appendChild(line(x2,y2,ax-Math.cos(a+Math.PI/2)*4,ay-Math.sin(a+Math.PI/2)*4,stroke,sw));return g;}
+function circle(cx,cy,r,fill='#44ddff',op=1,stroke=null,sw=1){
+  return el('circle',{cx,cy,r,fill,opacity:op<1?op:null,stroke:stroke||'none','stroke-width':sw});}
+function panel(x,y,w,h,title){
+  const g=el('g');g.appendChild(rect(x,y,w,h,C.PANEL,0.6,C.EDGE,1,4));
+  if(title)g.appendChild(txt(x+10,y+18,title,C.TEXT,11,'bold'));return g;}
 
-// ===== SCENE BUILDERS =====
 const scenes=[];
 
-// --- Scene 1: Plot File ---
+// ===== Scene 1: Plot File =====
 scenes.push({
 name:'Plot File',
-desc:'14.6 GB binary file. 79% back-pointers, 20% X values, 1% Y table.',
+desc:'14.6 GB: header + Y table (1%) + 7 PD sections (79%) + X table (20%).',
 build(){
-  const W=900,H=300;
-  const s=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
-  // Title
-  s.appendChild(text(W/2,30,'14.6 GB Plot File (k=29, SSD)',COLORS.KEY,16,'bold','middle'));
-  // File bar
-  const barY=80,barH=50,barW=840,barX=30;
+  const W=900,H=310,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
+  s.appendChild(txt(W/2,28,'14.6 GB Plot File (k=29, SSD)',C.KEY,16,'bold','middle'));
+  const bY=75,bH=48,bW=840,bX=30;
   const secs=[
-    {n:'Y table',sz:0.008,c:COLORS.Y,lbl:'144 MB'},
-    {n:'PD[0]\nT9→T8',sz:0.113,c:COLORS.PD,lbl:'2.0 GB'},
-    {n:'PD[1]\nT8→T7',sz:0.113,c:COLORS.PD,lbl:'2.0 GB'},
-    {n:'PD[2]\nT7→T6',sz:0.113,c:COLORS.PD,lbl:'2.0 GB'},
-    {n:'PD[3]\nT6→T5',sz:0.113,c:COLORS.PD,lbl:'2.0 GB'},
-    {n:'PD[4]\nT5→T4',sz:0.113,c:COLORS.PD,lbl:'2.0 GB'},
-    {n:'PD[5]\nT4→T3',sz:0.113,c:COLORS.PD,lbl:'2.0 GB'},
-    {n:'PD[6]\nT3→T2',sz:0.113,c:COLORS.PD,lbl:'2.0 GB'},
-    {n:'X table',sz:0.203,c:COLORS.X,lbl:'3.6 GB'},
-  ];
-  let x=barX;
-  secs.forEach((sec,i)=>{
-    const w=sec.sz*barW;if(w<2)return;
-    const r=rect(x,barY,w,barH,sec.c,0.85,COLORS.EDGE,1,3);
-    r.setAttribute('class','pulse-ani');r.style.animationDelay=(i*0.15)+'s';
-    s.appendChild(r);
-    if(w>20){s.appendChild(text(x+w/2,barY-6,sec.n.split('\n')[0],sec.c,10,'bold','middle'));
-      s.appendChild(text(x+w/2,barY+barH+14,sec.lbl,COLORS.TEXT,9,'normal','middle'));}
-    x+=w;
-  });
-  // Header marker
-  s.appendChild(rect(28,barY,4,barH,COLORS.HDR,0.8));
-  s.appendChild(text(30,barY-6,'Hdr',COLORS.HDR,9,'bold','middle'));
-  // File boundary
-  s.appendChild(rect(barX-2,barY-2,barW+4,barH+4,'none',1,COLORS.HDR,2,4));
+    {n:'Y',sz:0.008,c:C.Y,l:'144 MB'},
+    {n:'PD0',sz:0.113,c:C.PD,l:'2.0 GB'},{n:'PD1',sz:0.113,c:C.PD,l:'2.0 GB'},
+    {n:'PD2',sz:0.113,c:C.PD,l:'2.0 GB'},{n:'PD3',sz:0.113,c:C.PD,l:'2.0 GB'},
+    {n:'PD4',sz:0.113,c:C.PD,l:'2.0 GB'},{n:'PD5',sz:0.113,c:C.PD,l:'2.0 GB'},
+    {n:'PD6',sz:0.113,c:C.PD,l:'2.0 GB'},
+    {n:'X',sz:0.203,c:C.X,l:'3.6 GB'}];
+  let x=bX;
+  secs.forEach((sec,i)=>{const w=sec.sz*bW;if(w<2)return;
+    const r=rect(x,bY,w,bH,sec.c,0.85,C.EDGE,1,3);
+    r.setAttribute('class','pulse-ani');r.style.animationDelay=(i*0.12)+'s';s.appendChild(r);
+    if(w>20){s.appendChild(txt(x+w/2,bY-6,sec.n,sec.c,10,'bold','middle'));
+      s.appendChild(txt(x+w/2,bY+bH+14,sec.l,C.TEXT,9,'normal','middle'));}x+=w;});
+  s.appendChild(rect(28,bY,4,bH,C.HDR,0.8));
+  s.appendChild(txt(30,bY-6,'Hdr',C.HDR,9,'bold','middle'));
+  s.appendChild(rect(bX-2,bY-2,bW+4,bH+4,'none',1,C.HDR,2,4));
+  // Header detail
+  s.appendChild(rect(30,155,840,70,C.PANEL,0.5,C.EDGE,1,4));
+  s.appendChild(txt(40,173,'Header (4 KB, VNX-serialized, 4KB-aligned sections):',C.TEXT,11,'bold'));
+  s.appendChild(txt(40,191,'version, ksize, xbits, has_meta, seed, plot_id, farmer_key, contract',C.META,10,'normal','monospace'));
+  s.appendChild(txt(40,207,'park_size_{x,y,pd,meta}, park_bytes_{x,y,pd,meta}, entry_bits_x',C.META,10,'normal','monospace'));
+  s.appendChild(txt(40,223,'num_entries_y, table_offset_{x,y,meta}, table_offset_pd[7]',C.META,10,'normal','monospace'));
   // Legend
-  s.appendChild(text(W/2,180,'What each section stores:',COLORS.TEXT,12,'bold','middle'));
-  s.appendChild(text(W/2,205,'Y table = sorted Y values of table 9 (for fast challenge lookup)',COLORS.Y,11,'normal','middle'));
-  s.appendChild(text(W/2,225,'PD[0-6] = back-pointers: each section maps one table to its parents (binary tree branches)',COLORS.PD,11,'normal','middle'));
-  s.appendChild(text(W/2,245,'X table = original X values of table 2 (the tree leaves / proof output)',COLORS.X,11,'normal','middle'));
-  // Key insight
-  s.appendChild(rect(100,265,700,28,COLORS.KEY,0.08,COLORS.KEY,1,4));
-  s.appendChild(text(W/2,282,'KEY: PD parks are 79% of the file — they store the binary tree back-pointers for all 536M trees',COLORS.KEY,12,'bold','middle'));
+  s.appendChild(txt(W/2,250,'Y=sorted T9 values · PD[0-6]=back-pointers T9→T2 · X=T2 X values as line points',C.TEXT,11,'normal','middle'));
+  s.appendChild(rect(100,268,700,28,C.KEY,0.08,C.KEY,1,4));
+  s.appendChild(txt(W/2,285,'PD parks = 79% of file: back-pointers for ALL 536M binary trees',C.KEY,12,'bold','middle'));
   return s;
 },
-info:{t:'The Plot File',d:'A single binary file that proves you spent compute time.',
-body:`<h3>Analogy</h3><div class="d">Solve 536M puzzles, write answers in a file. Later, someone challenges you: look up the answer in seconds instead of re-solving.</div>
-<h3>Sections (left → right in the file)</h3>
-<div class="s">Header — 4 KB: ksize, seed, plot_id, farmer_key, park sizes, all offsets</div>
+info:{t:'The Plot File',d:'A binary file that proves you spent compute time.',
+body:`<h3>Sections (file order)</h3>
+<div class="s">Header — 4 KB: ksize=29, seed, plot_id, farmer_key, park sizes, all offsets</div>
 <div class="s">Y table — 144 MB (1%): sorted Y values of table 9, delta-encoded parks</div>
 <div class="s">PD[0-6] — 7 × 2.0 GB (79%): back-pointers for tables 9→8, 8→7, ..., 3→2</div>
 <div class="s">X table — 3.6 GB (20%): X values of table 2, packed as 57-bit line points</div>
-<div class="k">PD parks are 79% of the file. They store back-pointers for ALL 536M binary trees.</div>
+<div class="k">PD parks are 79% of the file — they store back-pointers for ALL 536M trees.</div>
+<h3>Park Parameters</h3>
 <div class="s">park_size_y=8192, park_size_pd=2048, park_size_x=2048</div>
-<div class="s">Park byte sizes: Y≈2308B, PD≈8103B, X≈14592B</div>`}
+<div class="s">Park bytes: Y≈2308B, PD≈8103B, X≈14592B</div>
+<div class="s">entry_bits_x=57 (line point encoding of X pairs)</div>`}
 });
 
-// --- Scene 2: F1 Table 1 ---
+// ===== Scene 2: F1 =====
 scenes.push({
 name:'F1: Table 1',
-desc:'Memory-hard PoW: each X generates 4KB memory, 256-iter random access, then SHA512.',
+desc:'Memory-hard PoW: 4KB memory per X, 256-iter random access, SHA512 → Y + meta.',
 build(){
-  const W=900,H=340;
-  const s=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
-  s.appendChild(text(W/2,25,'Table 1 (F1): Memory-Hard Proof of Work',COLORS.KEY,15,'bold','middle'));
-  // X input
-  s.appendChild(rect(50,130,70,40,COLORS.X,0.8,COLORS.EDGE,1,4));
-  s.appendChild(text(85,155,'X',COLORS.X,14,'bold','middle'));
-  s.appendChild(text(85,185,'input',COLORS.TEXT,10,'normal','middle'));
-  // Arrow to memory grid
-  s.appendChild(arrow(120,150,180,150,COLORS.FLOW));
-  // Memory grid (8x8)
-  const gx=190,gy=100,sz=14;
+  const W=900,H=340,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
+  s.appendChild(txt(W/2,25,'Table 1 (F1): Memory-Hard Proof of Work',C.KEY,15,'bold','middle'));
+  s.appendChild(rect(50,130,70,40,C.X,0.8,C.EDGE,1,4));
+  s.appendChild(txt(85,155,'X',C.X,14,'bold','middle'));
+  s.appendChild(txt(85,185,'0..2²⁹-1',C.TEXT,10,'normal','middle'));
+  s.appendChild(arrow(120,150,180,150,C.FLOW));
+  // Memory grid
+  const gx=190,gy=95,sz=13;
   for(let i=0;i<8;i++)for(let j=0;j<8;j++){
-    const c=rect(gx+i*sz,gy+j*sz,sz-1,sz-1,COLORS.F1,0.2+Math.random()*0.3,COLORS.EDGE,0.5,1);
-    c.setAttribute('class','pulse-ani');c.style.animationDelay=(i+j)*0.05+'s';
-    s.appendChild(c);
-  }
-  s.appendChild(text(gx+56,gy-8,'4KB memory',COLORS.F1,11,'bold','middle'));
-  s.appendChild(text(gx+56,gy+130,'1024 uint32',COLORS.TEXT,9,'normal','middle'));
-  s.appendChild(text(gx+56,gy+145,'32 rounds hash',COLORS.TEXT,9,'normal','middle'));
-  // Random access arcs
-  for(let i=0;i<5;i++){
-    const x1=gx+Math.random()*110,y1=gy+Math.random()*110;
-    const x2=gx+Math.random()*110,y2=gy+Math.random()*110;
-    s.appendChild(line(x1,y1,x2,y2,'#ff6688',1,0.3,'2 2','flow-line'));
-  }
-  s.appendChild(text(gx+56,gy+165,'256-iter random access',COLORS.F1,9,'normal','middle'));
-  // Arrow to SHA512
-  s.appendChild(arrow(320,150,380,150,COLORS.FLOW));
-  // SHA512 box
-  s.appendChild(rect(380,125,80,50,COLORS.F1,0.7,COLORS.EDGE,1,4));
-  s.appendChild(text(420,155,'SHA512',COLORS.F1,13,'bold','middle'));
-  s.appendChild(text(420,190,'key ‖ mem_hash',COLORS.TEXT,9,'normal','middle'));
-  // Arrow to output
-  s.appendChild(arrow(460,150,530,150,COLORS.FLOW));
-  // Output: Y + C + X
-  s.appendChild(rect(530,100,55,30,COLORS.Y,0.8,COLORS.EDGE,1,3));
-  s.appendChild(text(557,120,'Y',COLORS.Y,12,'bold','middle'));
-  s.appendChild(text(557,148,'29-bit',COLORS.TEXT,9,'normal','middle'));
-  s.appendChild(rect(530,135,55,30,COLORS.META,0.7,COLORS.EDGE,1,3));
-  s.appendChild(text(557,155,'C (meta)',COLORS.META,10,'bold','middle'));
-  s.appendChild(text(557,183,'14×29-bit',COLORS.TEXT,9,'normal','middle'));
-  s.appendChild(rect(530,170,55,30,COLORS.X,0.8,COLORS.EDGE,1,3));
-  s.appendChild(text(557,190,'X',COLORS.X,12,'bold','middle'));
-  s.appendChild(text(557,218,'29-bit',COLORS.TEXT,9,'normal','middle'));
-  // Stats
-  s.appendChild(rect(620,80,260,120,COLORS.PANEL,0.6,COLORS.EDGE,1,4));
-  s.appendChild(text(630,100,'Cost:',COLORS.TEXT,11,'bold'));
-  s.appendChild(text(630,118,'2²⁹ × 4KB = 2 TB writes',COLORS.META,11,'normal','monospace'));
-  s.appendChild(text(630,136,'~9.4 sec on RTX 5090',COLORS.X,11,'normal','monospace'));
-  s.appendChild(text(630,154,'(compute-bound)',COLORS.TEXT,10,'normal'));
-  s.appendChild(text(630,178,'Verification:',COLORS.TEXT,11,'bold'));
-  s.appendChild(text(630,196,'Only 256 X values need F1',COLORS.Y,10,'normal','monospace'));
-  s.appendChild(text(630,212,'= milliseconds',COLORS.Y,10,'normal','monospace'));
+    const c=rect(gx+i*sz,gy+j*sz,sz-1,sz-1,C.F1,0.15+Math.random()*0.3,C.EDGE,0.5,1);
+    c.setAttribute('class','pulse-ani');c.style.animationDelay=(i+j)*0.04+'s';s.appendChild(c);}
+  s.appendChild(txt(gx+52,gy-8,'4KB memory',C.F1,11,'bold','middle'));
+  s.appendChild(txt(gx+52,gy+122,'1024 uint32',C.TEXT,9,'normal','middle'));
+  s.appendChild(txt(gx+52,gy+137,'32 rounds',C.TEXT,9,'normal','middle'));
+  for(let i=0;i<6;i++){
+    const x1=gx+Math.random()*104,y1=gy+Math.random()*104;
+    const x2=gx+Math.random()*104,y2=gy+Math.random()*104;
+    s.appendChild(line(x1,y1,x2,y2,'#ff6688',1,0.3,'2 2','flow-line'));}
+  s.appendChild(txt(gx+52,gy+157,'256-iter random access',C.F1,9,'normal','middle'));
+  s.appendChild(arrow(320,150,380,150,C.FLOW));
+  s.appendChild(rect(380,125,80,50,C.F1,0.7,C.EDGE,1,4));
+  s.appendChild(txt(420,155,'SHA512',C.F1,13,'bold','middle'));
+  s.appendChild(txt(420,190,'key‖mem_hash',C.TEXT,9,'normal','middle'));
+  s.appendChild(arrow(460,150,530,150,C.FLOW));
+  // Output
+  s.appendChild(rect(530,95,60,30,C.Y,0.8,C.EDGE,1,3));
+  s.appendChild(txt(560,115,'Y',C.Y,12,'bold','middle'));
+  s.appendChild(txt(560,140,'29-bit',C.TEXT,9,'normal','middle'));
+  s.appendChild(rect(530,130,60,30,C.META,0.7,C.EDGE,1,3));
+  s.appendChild(txt(560,150,'C meta',C.META,10,'bold','middle'));
+  s.appendChild(txt(560,175,'14×29b',C.TEXT,9,'normal','middle'));
+  s.appendChild(rect(530,165,60,30,C.X,0.8,C.EDGE,1,3));
+  s.appendChild(txt(560,185,'X',C.X,12,'bold','middle'));
+  s.appendChild(txt(560,210,'29-bit',C.TEXT,9,'normal','middle'));
+  // Kernel chain
+  s.appendChild(rect(620,75,260,135,C.PANEL,0.6,C.EDGE,1,4));
+  s.appendChild(txt(630,93,'GPU Kernels:',C.TEXT,11,'bold'));
+  ['gen_mem_array','calc_mem_hash','scatter_t1'].forEach((k,i)=>{
+    s.appendChild(rect(630,100+i*22,240,18,C.F1,0.1,C.EDGE,0.5,2));
+    s.appendChild(txt(750,113+i*22,k,C.F1,9,'bold','middle'));});
+  s.appendChild(txt(630,178,'Cost: 2²⁹×4KB = 2TB writes',C.META,10,'normal','monospace'));
+  s.appendChild(txt(630,194,'~9.4s RTX 5090 (compute-bound)',C.X,10,'normal','monospace'));
   return s;
 },
 info:{t:'F1: Table 1',d:'Memory-hard proof-of-work. The "work" that proves you spent time.',
 body:`<h3>Per X value (0 to 536,870,911):</h3>
-<div class="d">1. key = SHA512(X ‖ plot_id) — 16 uint32</div>
-<div class="d">2. Generate 4KB memory: 32 rounds of hashing → 1024 uint32</div>
-<div class="d">3. 256 iterations of random access into that 4KB</div>
-<div class="d">4. SHA512(key ‖ mem_hash) → Y (29-bit) + C (14×29-bit meta)</div>
+<div class="d">1. key = SHA512(X ‖ plot_id) → 16 uint32</div>
+<div class="d">2. gen_mem_array: 32 rounds of hashing → 1024 uint32 (4KB)</div>
+<div class="d">3. calc_mem_hash: 256 iterations of random access into 4KB</div>
+<div class="d">4. scatter_t1: SHA512(key ‖ mem_hash) → Y + C</div>
 <div class="c">Y = XOR(SHA512(key ‖ mem_hash)[0..13]) &amp; KMASK
 C[j*14+i] = hash[i] &amp; KMASK
-X[j] = X  (stored for proof)</div>
+X[j] = X  (kept for proof)</div>
 <div class="s">Cost: 2^29 × 4KB = 2TB writes. ~9.4s on RTX 5090 (compute-bound).</div>
 <div class="s">Verification: only 256 X values need F1 recompute = milliseconds.</div>
-<div class="k">F1 is the PoW component. The memory-hard random access cannot be parallelized efficiently.</div>`}
+<div class="k">F1 is the PoW component. Memory-hard random access cannot be parallelized.</div>`}
 });
 
-// --- Scene 3: Match + Eval ---
+// ===== Scene 3: Match + Eval =====
 scenes.push({
 name:'Match + Eval',
-desc:'Find (Y, Y+1) pair → SHA512(meta_L‖meta_R) → new entry with PD back-pointer.',
+desc:'(Y, Y+1) pair → SHA512(meta_L‖meta_R) → new entry + PD back-pointer (fixed-stride).',
 build(){
-  const W=900,H=380;
-  const s=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
-  s.appendChild(text(W/2,25,'Match + Eval: The Core Operation',COLORS.KEY,15,'bold','middle'));
-  // Left: two entries with consecutive Y
-  s.appendChild(rect(60,80,120,40,COLORS.Y,0.8,COLORS.EDGE,1,4));
-  s.appendChild(text(120,105,'Y',COLORS.Y,14,'bold','middle'));
-  s.appendChild(rect(60,130,120,40,COLORS.Y,0.8,COLORS.EDGE,1,4));
-  s.appendChild(text(120,155,'Y+1',COLORS.Y,14,'bold','middle'));
-  s.appendChild(text(120,190,'consecutive pair',COLORS.FLOW,10,'bold','middle'));
-  // Meta boxes
-  s.appendChild(rect(60,80,30,40,COLORS.META,0.6,COLORS.EDGE,1,2));
-  s.appendChild(rect(60,130,30,40,COLORS.META,0.6,COLORS.EDGE,1,2));
-  // Arrow to SHA512
-  s.appendChild(arrow(180,125,300,125,COLORS.FLOW));
-  s.appendChild(text(240,118,'meta_L ‖ meta_R',COLORS.META,10,'normal','middle'));
-  // SHA512 box
-  s.appendChild(rect(300,100,90,50,COLORS.F1,0.7,COLORS.EDGE,1,4));
-  s.appendChild(text(345,130,'SHA512',COLORS.F1,14,'bold','middle'));
-  // Arrow to output
-  s.appendChild(arrow(390,125,480,125,COLORS.FLOW));
-  // Output: new entry
-  s.appendChild(rect(480,80,80,35,COLORS.Y,0.8,COLORS.EDGE,1,4));
-  s.appendChild(text(520,103,'new Y',COLORS.Y,11,'bold','middle'));
-  s.appendChild(rect(480,120,80,35,COLORS.META,0.7,COLORS.EDGE,1,4));
-  s.appendChild(text(520,143,'new meta',COLORS.META,10,'bold','middle'));
-  s.appendChild(rect(480,160,80,35,COLORS.PD,0.8,COLORS.EDGE,1,4));
-  s.appendChild(text(520,183,'PD',COLORS.PD,12,'bold','middle'));
-  s.appendChild(text(520,213,'back-pointer',COLORS.TEXT,9,'normal','middle'));
-  // PD detail box
-  s.appendChild(rect(620,80,240,115,COLORS.PANEL,0.6,COLORS.EDGE,1,4));
-  s.appendChild(text(630,100,'PD = 40 bits:',COLORS.PD,11,'bold'));
-  s.appendChild(text(630,118,'[position: 30 bits][delta: 5 bits]',COLORS.META,10,'normal','monospace'));
-  s.appendChild(text(630,138,'position = y_out × max_bs + pos_in',COLORS.TEXT,9,'normal','monospace'));
-  s.appendChild(text(630,154,'delta = right_parent - left - 1',COLORS.TEXT,9,'normal','monospace'));
-  s.appendChild(text(630,176,'Phase 2 remaps to compact index',COLORS.KEY,9,'bold'));
-  // Back-pointer arrow (reverse)
-  s.appendChild(arrow(480,180,180,170,COLORS.PD));
-  s.appendChild(text(330,172,'← points back to parents',COLORS.PD,10,'normal','middle'));
-  // Bottom: repeat 8 times
-  s.appendChild(rect(100,250,700,40,COLORS.KEY,0.08,COLORS.KEY,1,4));
-  s.appendChild(text(W/2,275,'This operation repeats 8 times: tables 2 through 9',COLORS.KEY,12,'bold','middle'));
-  s.appendChild(text(W/2,300,'Each entry in table t has exactly 2 parents in table t-1 → binary tree structure',COLORS.TEXT,11,'normal','middle'));
-  s.appendChild(text(W/2,325,'Probability of Y+1 neighbor ≈ 63% → tables stay ~same size (NOT a funnel)',COLORS.TEXT,11,'normal','middle'));
+  const W=900,H=400,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
+  s.appendChild(txt(W/2,25,'Match + Eval: The Core Operation',C.KEY,15,'bold','middle'));
+  // Two entries
+  s.appendChild(rect(50,70,110,35,C.Y,0.8,C.EDGE,1,4));
+  s.appendChild(txt(105,92,'Y',C.Y,14,'bold','middle'));
+  s.appendChild(rect(50,110,110,35,C.Y,0.8,C.EDGE,1,4));
+  s.appendChild(txt(105,132,'Y+1',C.Y,14,'bold','middle'));
+  s.appendChild(rect(50,70,25,35,C.META,0.6,C.EDGE,1,2));
+  s.appendChild(rect(50,110,25,35,C.META,0.6,C.EDGE,1,2));
+  s.appendChild(txt(105,165,'consecutive pair',C.FLOW,10,'bold','middle'));
+  s.appendChild(arrow(160,107,280,107,C.FLOW));
+  s.appendChild(txt(220,100,'meta_L ‖ meta_R',C.META,10,'normal','middle'));
+  s.appendChild(rect(280,82,80,50,C.F1,0.7,C.EDGE,1,4));
+  s.appendChild(txt(320,112,'SHA512',C.F1,14,'bold','middle'));
+  s.appendChild(arrow(360,107,450,107,C.FLOW));
+  // Output
+  s.appendChild(rect(450,70,70,30,C.Y,0.8,C.EDGE,1,4));
+  s.appendChild(txt(485,90,'new Y',C.Y,11,'bold','middle'));
+  s.appendChild(rect(450,105,70,30,C.META,0.7,C.EDGE,1,4));
+  s.appendChild(txt(485,125,'new meta',C.META,10,'bold','middle'));
+  s.appendChild(rect(450,140,70,30,C.PD,0.8,C.EDGE,1,4));
+  s.appendChild(txt(485,160,'PD',C.PD,12,'bold','middle'));
+  s.appendChild(txt(485,188,'back-ptr',C.TEXT,9,'normal','middle'));
+  // PD encoding detail
+  s.appendChild(rect(560,60,320,145,C.PANEL,0.6,C.EDGE,1,4));
+  s.appendChild(txt(570,78,'PD = 40 bits:',C.PD,11,'bold'));
+  // Bit layout visualization
+  s.appendChild(rect(570,88,210,22,C.PD,0.15,C.PD,0.5,2)); // position field
+  s.appendChild(rect(780,88,35,22,C.META,0.2,C.META,0.5,2)); // delta field
+  s.appendChild(txt(675,103,'position (30 bits)',C.PD,9,'bold','middle'));
+  s.appendChild(txt(797,103,'δ (5b)',C.META,8,'bold','middle'));
+  s.appendChild(txt(570,128,'position = y_in × max_bs1 + P_x_in',C.TEXT,9,'normal','monospace'));
+  s.appendChild(txt(570,144,'  y_in = input main bucket (FIXED STRIDE)',C.TEXT,9,'normal','monospace'));
+  s.appendChild(txt(570,160,'  P_x_in = pos in input sorted sub-bucket array',C.TEXT,9,'normal','monospace'));
+  s.appendChild(txt(570,176,'  δ = right_parent - left_parent - 1',C.TEXT,9,'normal','monospace'));
+  s.appendChild(txt(570,192,'Decode: left = PD>>5, right = left + (PD&31)+1',C.KEY,9,'bold','monospace'));
+  // Back-pointer arrow
+  s.appendChild(arrow(450,160,160,145,C.PD));
+  s.appendChild(txt(305,138,'← points to parents',C.PD,10,'normal','middle'));
+  // Bottom
+  s.appendChild(rect(80,240,740,55,C.KEY,0.08,C.KEY,1,4));
+  s.appendChild(txt(W/2,260,'This operation repeats 8 times: tables 2 through 9',C.KEY,12,'bold','middle'));
+  s.appendChild(txt(W/2,280,'Each entry in table t has exactly 2 parents in table t-1 → binary tree structure',C.TEXT,11,'normal','middle'));
+  s.appendChild(txt(W/2,300,'P(Y+1 neighbor) ≈ 63% → tables stay ~same size (NOT a funnel)',C.TEXT,11,'normal','middle'));
   return s;
 },
-info:{t:'Match + Eval',d:'The fundamental operation: combine two parents into one child.',
+info:{t:'Match + Eval',d:'Combine two parents with consecutive Y into one child entry.',
 body:`<div class="k">Each entry in tables 2-9 is created by finding two entries with consecutive Y values.</div>
 <h3>Step by step</h3>
-<div class="d">1. Sort entries by Y value</div>
-<div class="d">2. Find a pair where Y and Y+1 are both present</div>
-<div class="d">3. SHA512(meta_L ‖ meta_R) → new Y + new meta</div>
-<div class="d">4. Store PD back-pointer to find parents later</div>
-<div class="c">block = meta_L ‖ meta_R    // 2×14×29 = 812 bits
-hash = SHA512(block)
-Y_new = XOR(hash[0..13]) &amp; KMASK
-PD = (left_parent_index &lt;&lt; 5) | delta</div>
+<div class="d">1. Sort entries by Y within sub-buckets (hybrid_sort_y)</div>
+<div class="d">2. match_p1: find (Y, Y+1) pairs. Store LR=(left_pos, right_pos), PD_tmp=(P_x&lt;&lt;5)|delta</div>
+<div class="d">3. eval_p1_tx: SHA512(meta_L ‖ meta_R) → new Y + new meta</div>
+<div class="d">4. Store PD = PD_0 + PD_in[x] at output position</div>
+<div class="c">// match_p1 kernel:
+P_x = bucket_offset[y] + x    // global pos in input
+PD_tmp[i] = (P_x << 5) | (i - x - 1)
+
+// eval_p1_tx kernel:
+PD_0 = (y_input * max_bucket_size_1) << 5
+j = y_output * max_bucket_size_1 + pos  // output position
+PD_out[j] = PD_0 + PD_in[x]
+         = ((y_in * max_bs1 + P_x_in) << 5) | delta</div>
 <h3>PD Encoding (raw, phase 1)</h3>
 <div class="s">PD = 40 bits: [position:30 bits][delta:5 bits]</div>
-<div class="s">position = y_output × max_bucket_size + global_pos_input</div>
-<div class="s">delta = distance from left to right parent</div>
-<div class="s">Phase 2 remaps positions to compact (dense) indices before park encoding</div>
-<h3>Why Y and Y+1?</h3>
-<div class="d">Y values are random in 2^29 space. P(Y+1 neighbor) ≈ 63%. Each entry matches ~2 partners (as left AND right parent), so tables stay ~same size.</div>`}
+<div class="s">position = y_input × max_bucket_size_1 + P_x_input (FIXED STRIDE)</div>
+<div class="s">delta = right_parent_pos - left_parent_pos - 1</div>
+<div class="s">Phase 2 remaps positions to compact (dense) indices before park encoding</div>`}
 });
 
-// --- Scene 4: All 9 Tables ---
+// ===== Scene 4: Tables 1-9 =====
 scenes.push({
 name:'Tables 1-9',
-desc:'9 tables, each ~536M entries. NOT a funnel — sizes barely change.',
+desc:'9 tables, each ~536M entries. NOT a funnel. Forest of 536M binary trees.',
 build(){
-  const W=900,H=340;
-  const s=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
-  s.appendChild(text(W/2,25,'The 9 Tables: A Forest of 536M Binary Trees',COLORS.KEY,15,'bold','middle'));
+  const W=900,H=340,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
+  s.appendChild(txt(W/2,25,'The 9 Tables: Forest of 536M Binary Trees',C.KEY,15,'bold','middle'));
   const tD=[
-    {n:'T1 (F1)',c:COLORS.F1,sub:'X → hash → Y, meta',e:entries[1]},
-    {n:'T2',c:COLORS.X,sub:'stores X values',e:entries[2]},
-    {n:'T3',c:COLORS.PD,sub:'Y, meta, PD',e:entries[3]},
-    {n:'T4',c:COLORS.PD,sub:'Y, meta, PD',e:entries[4]},
-    {n:'T5',c:COLORS.PD,sub:'Y, meta, PD',e:entries[5]},
-    {n:'T6',c:COLORS.PD,sub:'Y, meta, PD',e:entries[6]},
-    {n:'T7',c:COLORS.PD,sub:'Y, meta, PD',e:entries[7]},
-    {n:'T8',c:COLORS.PD,sub:'Y, meta, PD',e:entries[8]},
-    {n:'T9',c:COLORS.Y,sub:'Y-sorted, final',e:entries[9]},
-  ];
-  const bw=70,bh=28,sp=12,x0=80,y0=60;
-  tD.forEach((t,i)=>{
-    const x=x0+i*(bw+sp),y=y0+60;
-    const r=rect(x,y,bw,bh,t.c,0.7,COLORS.EDGE,1,3);
-    r.setAttribute('class','pulse-ani');r.style.animationDelay=(i*0.1)+'s';
-    s.appendChild(r);
-    s.appendChild(text(x+bw/2,y+18,t.n,t.c,10,'bold','middle'));
-    s.appendChild(text(x+bw/2,y+bh+12,t.sub,COLORS.TEXT,8,'normal','middle'));
-    s.appendChild(text(x+bw/2,y+bh+26,(t.e/1e6).toFixed(1)+'M',COLORS.META,9,'bold','middle'));
-    if(i<8)s.appendChild(arrow(x+bw+2,y+bh/2,x+bw+sp-2,y+bh/2,COLORS.FLOW));
-  });
-  // Key insight
-  s.appendChild(rect(80,200,740,50,COLORS.KEY,0.08,COLORS.KEY,1,4));
-  s.appendChild(text(W/2,220,'All tables ~536M entries — NOT a funnel',COLORS.KEY,13,'bold','middle'));
-  s.appendChild(text(W/2,240,'Each entry matches ~2 partners (as left AND right parent), so table sizes barely change',COLORS.TEXT,11,'normal','middle'));
-  // Stats
-  s.appendChild(text(120,280,'T1: 536,870,912',COLORS.F1,10,'normal'));
-  s.appendChild(text(300,280,'T9: 536,061,737',COLORS.Y,10,'normal'));
-  s.appendChild(text(500,280,'Shrinkage: only 0.15%',COLORS.TEXT,10,'normal'));
-  s.appendChild(text(700,280,'T1=9.6s, T2-9=28.7s',COLORS.META,10,'normal'));
+    {n:'T1 (F1)',c:C.F1,sub:'X→hash→Y,meta',e:entries[1]},
+    {n:'T2',c:C.X,sub:'stores X2 values',e:entries[2]},
+    {n:'T3',c:C.PD,sub:'Y,meta,PD',e:entries[3]},
+    {n:'T4',c:C.PD,sub:'Y,meta,PD',e:entries[4]},
+    {n:'T5',c:C.PD,sub:'Y,meta,PD',e:entries[5]},
+    {n:'T6',c:C.PD,sub:'Y,meta,PD',e:entries[6]},
+    {n:'T7',c:C.PD,sub:'Y,meta,PD',e:entries[7]},
+    {n:'T8',c:C.PD,sub:'Y,meta,PD',e:entries[8]},
+    {n:'T9',c:C.Y,sub:'Y-sorted,final',e:entries[9]}];
+  const bw=68,bh=28,sp=12,x0=80,y0=50;
+  tD.forEach((t,i)=>{const x=x0+i*(bw+sp),y=y0+60;
+    const r=rect(x,y,bw,bh,t.c,0.7,C.EDGE,1,3);
+    r.setAttribute('class','pulse-ani');r.style.animationDelay=(i*0.1)+'s';s.appendChild(r);
+    s.appendChild(txt(x+bw/2,y+18,t.n,t.c,10,'bold','middle'));
+    s.appendChild(txt(x+bw/2,y+bh+12,t.sub,C.TEXT,8,'normal','middle'));
+    s.appendChild(txt(x+bw/2,y+bh+26,(t.e/1e6).toFixed(1)+'M',C.META,9,'bold','middle'));
+    if(i<8)s.appendChild(arrow(x+bw+2,y+bh/2,x+bw+sp-2,y+bh/2,C.FLOW));});
+  s.appendChild(rect(80,195,740,50,C.KEY,0.08,C.KEY,1,4));
+  s.appendChild(txt(W/2,215,'All tables ~536M entries — NOT a funnel',C.KEY,13,'bold','middle'));
+  s.appendChild(txt(W/2,235,'Each entry matches ~2 partners (left AND right) → table sizes barely change',C.TEXT,11,'normal','middle'));
+  s.appendChild(txt(120,280,'T1: 536,870,912',C.F1,10,'normal'));
+  s.appendChild(txt(300,280,'T9: 536,061,737',C.Y,10,'normal'));
+  s.appendChild(txt(500,280,'Shrinkage: 0.15%',C.TEXT,10,'normal'));
+  s.appendChild(txt(700,280,'T1=9.6s, T2-9=28.7s',C.META,10,'normal'));
   return s;
 },
-info:{t:'Tables 1-9',d:'All tables have ~536M entries. They do NOT shrink like a funnel.',
-body:`<div class="k">All 9 tables are approximately the same size. This is a FOREST of ~536M binary trees, not a funnel.</div>
+info:{t:'Tables 1-9',d:'All tables have ~536M entries. They do NOT shrink.',
+body:`<div class="k">All 9 tables ≈ same size. This is a FOREST of ~536M binary trees, not a funnel.</div>
 <h3>Table Types</h3>
 <div class="s">T1 (F1): X → memory-hard hash → (Y, C=14×meta). 536.9M entries.</div>
-<div class="s">T2: match (Y,Y+1) → SHA512. Stores X2 (actual X values). 536.9M entries.</div>
+<div class="s">T2: match (Y,Y+1) → SHA512. Stores X2 = actual X value pairs. 536.9M.</div>
 <div class="s">T3-T8: same match+eval. Store PD back-pointers. ~536.8M each.</div>
-<div class="s">T9: final table. Y-sorted, C_out=12×meta (reduced from 14). 536.1M entries.</div>
+<div class="s">T9: final table. Y-sorted, C_out=12×meta (reduced from 14). 536.1M.</div>
 <h3>Why same size?</h3>
-<div class="d">With 536M entries in 536M Y-space, each entry matches ~2 partners (as left AND right). So matches ≈ entries. No shrinkage.</div>
-<div class="s">T1: 536,870,912 → T9: 536,061,737 (only 0.15% smaller)</div>
-<div class="s">Compute: T1=9.6s (F1, compute-bound), T2-T9=28.7s total (DMA-bound)</div>`}
+<div class="d">536M entries in 2²⁹ Y-space. P(Y+1 neighbor) ≈ 63%. Each entry matches ~2 partners (as left AND right). Matches ≈ entries. No shrinkage.</div>
+<div class="s">T1: 536,870,912 → T9: 536,061,737 (0.15% smaller)</div>
+<div class="s">Compute: T1=9.6s (compute-bound), T2-T9=28.7s total (DMA-bound)</div>`}
 });
 
-// --- Scene 5: GPU Pipeline ---
+// ===== Scene 5: Bucketing & Sorting =====
+scenes.push({
+name:'Bucketing',
+desc:'Two-level bucket structure: 64 main buckets × 16384 sub-buckets. Sort within sub-buckets.',
+build(){
+  const W=900,H=370,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
+  s.appendChild(txt(W/2,25,'Two-Level Bucket Structure',C.KEY,15,'bold','middle'));
+  // Main buckets
+  s.appendChild(txt(200,55,'Main Buckets (64)',C.PD,12,'bold','middle'));
+  s.appendChild(txt(200,72,'indexed by Y >> (KSIZE - LOGBUCKETS)',C.TEXT,9,'normal','middle'));
+  s.appendChild(txt(200,88,'= top 6 bits of Y',C.TEXT,9,'normal','middle'));
+  // Main bucket row
+  for(let i=0;i<8;i++){const x=80+i*30;
+    s.appendChild(rect(x,100,28,35,C.PD,0.3,C.EDGE,1,2));
+    s.appendChild(txt(x+14,121,i,C.PD,8,'bold','middle'));}
+  s.appendChild(txt(200,148,'... 64 total ...',C.TEXT,9,'normal','middle'));
+  s.appendChild(arrow(200,160,200,180,C.FLOW));
+  // Sub-buckets
+  s.appendChild(txt(200,200,'Sub-Buckets (16384 per main bucket)',C.SUB,12,'bold','middle'));
+  s.appendChild(txt(200,217,'indexed by lower bits of Y within main bucket',C.TEXT,9,'normal','middle'));
+  s.appendChild(txt(200,233,'LOGBUCKETS2 = KSIZE - LOGBUCKETS - 9 = 14',C.TEXT,9,'normal','middle'));
+  // Sub-bucket grid
+  for(let i=0;i<12;i++)for(let j=0;j<8;j++){
+    const x=80+i*22+80,y=250+j*12;
+    s.appendChild(rect(x,y,20,10,C.SUB,0.15+Math.random()*0.2,C.EDGE,0.3,1));}
+  s.appendChild(txt(200,355,'Each sub-bucket: max ~1365 entries (max_bucket_size_2)',C.TEXT,9,'normal','middle'));
+  // Kernel flow
+  s.appendChild(rect(500,90,360,200,C.PANEL,0.6,C.EDGE,1,4));
+  s.appendChild(txt(510,108,'GPU Kernel Chain (per table t):',C.TEXT,11,'bold'));
+  const kernels=[
+    {n:'scatter_2',d:'assign to sub-bucket, PY=(Y<<35)|local_x'},
+    {n:'calc_offset_sum',d:'prefix sums of sub-bucket sizes'},
+    {n:'hybrid_sort_y',d:'sort by PY within sub-buckets'},
+    {n:'match_p1',d:'find (Y,Y+1) pairs → LR + PD_tmp'},
+    {n:'eval_p1_tx',d:'SHA512 → new Y/meta, write PD_out'},
+    {n:'write_pd / write_x2',d:'reorder to output main buckets'}
+  ];
+  kernels.forEach((k,i)=>{
+    s.appendChild(rect(510,118+i*24,340,20,C.F1,0.08,C.EDGE,0.5,2));
+    s.appendChild(txt(520,131+i*24,k.n,C.F1,9,'bold'));
+    s.appendChild(txt(620,131+i*24,k.d,C.TEXT,8,'normal'));});
+  return s;
+},
+info:{t:'Two-Level Bucketing',d:'Entries are organized into main buckets and sub-buckets for parallel processing.',
+body:`<div class="k">Each table's entries are divided into 64 main buckets, each with 16384 sub-buckets.</div>
+<h3>Main Buckets (level 1)</h3>
+<div class="s">num_buckets_1 = 2^LOGBUCKETS = 64 (for k29, LOGBUCKETS=6)</div>
+<div class="s">Main bucket = Y >> (KSIZE - LOGBUCKETS) = top 6 bits of Y</div>
+<div class="s">max_bucket_size_1 = (2^29 / 64) × 17/16 ≈ 2,228,224</div>
+<h3>Sub-Buckets (level 2)</h3>
+<div class="s">num_buckets_2 = 2^LOGBUCKETS2 = 16384 (LOGBUCKETS2 = 14)</div>
+<div class="s">Sub-bucket = lower bits of Y within main bucket</div>
+<div class="s">max_bucket_size_2 ≈ 1365 entries per sub-bucket</div>
+<h3>Why two levels?</h3>
+<div class="d">Parallelism: each main bucket processed independently by a CUDA stream. Sub-buckets enable efficient parallel sorting (hybrid_sort_y sorts within sub-bucket, small enough for shared memory).</div>
+<div class="c">// scatter_2 kernel:
+PY = (Y << 35) | local_x  // pack Y and position
+sub_bucket = Y & (num_buckets_2 - 1)  // lower 14 bits
+// hybrid_sort_y sorts by PY within each sub-bucket</div>
+<h3>Match within sub-buckets</h3>
+<div class="d">match_p1 scans consecutive entries within a sub-bucket looking for (Y, Y+1) pairs. Can cross sub-bucket boundary (checks next sub-bucket too).</div>`}
+});
+
+// ===== Scene 6: GPU Pipeline =====
 scenes.push({
 name:'GPU Pipeline',
 desc:'4 CUDA streams: upload RAM→GPU, compute, download GPU→RAM. PCIe DMA bottleneck.',
 build(){
-  const W=900,H=360;
-  const s=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
-  s.appendChild(text(W/2,25,'GPU Pipeline: Phase 1 Data Flow (Tables 2-9)',COLORS.KEY,15,'bold','middle'));
-  // RAM block
-  s.appendChild(rect(40,100,130,120,COLORS.HDR,0.12,COLORS.EDGE,1,5));
-  s.appendChild(text(105,90,'CPU RAM',COLORS.HDR,13,'bold','middle'));
-  s.appendChild(text(105,115,'host buckets',COLORS.TEXT,10,'normal','middle'));
-  s.appendChild(text(105,135,'(non-pinned)',COLORS.TEXT,9,'normal','middle'));
-  s.appendChild(text(105,155,'~30 GB total',COLORS.META,10,'normal','middle'));
-  // GPU block
-  s.appendChild(rect(730,100,130,120,COLORS.STREAM,0.08,COLORS.EDGE,1,5));
-  s.appendChild(text(795,90,'GPU',COLORS.STREAM,13,'bold','middle'));
-  s.appendChild(text(795,115,'device buffers',COLORS.TEXT,10,'normal','middle'));
-  s.appendChild(text(795,135,'(pinned DMA)',COLORS.TEXT,9,'normal','middle'));
-  s.appendChild(text(795,155,'reused/bucket',COLORS.META,10,'normal','middle'));
-  // 4 streams
-  for(let i=0;i<4;i++){
-    const y=115+i*25;
-    s.appendChild(text(50,y+5,'S'+i,COLORS.STREAM,10,'bold'));
-    // Upload arrow
-    s.appendChild(arrow(170,y+5,725,y+5,COLORS.STREAM));
-    // Download arrow (below, reverse)
-    s.appendChild(arrow(725,y+12,170,y+12,COLORS.PD));
-  }
-  s.appendChild(text(450,90,'Upload (PCIe DMA)',COLORS.STREAM,11,'bold','middle'));
-  s.appendChild(text(450,225,'Download (PCIe DMA)',COLORS.PD,11,'bold','middle'));
-  // Compute in middle
-  s.appendChild(rect(350,80,200,120,COLORS.F1,0.06,COLORS.EDGE,1,4));
-  s.appendChild(text(450,75,'GPU Compute',COLORS.F1,12,'bold','middle'));
-  const kernels=['scatter_2','hybrid_sort_y','match_p1','eval_p1_tx'];
-  kernels.forEach((k,i)=>{
-    s.appendChild(rect(360,95+i*22,180,18,COLORS.F1,0.1+Math.random()*0.2,COLORS.EDGE,0.5,2));
-    s.appendChild(text(450,108+i*22,k,COLORS.F1,9,'bold','middle'));
-  });
-  // Disk
-  s.appendChild(rect(300,270,300,35,COLORS.DISK,0.12,COLORS.EDGE,1,4));
-  s.appendChild(text(450,292,'Disk (Phase 2 only)',COLORS.DISK,11,'bold','middle'));
-  s.appendChild(text(450,332,'Phase 1 is pure RAM ↔ GPU. No disk I/O.',COLORS.TEXT,10,'normal','middle'));
-  // Stats
-  s.appendChild(rect(620,250,260,60,COLORS.PANEL,0.6,COLORS.EDGE,1,4));
-  s.appendChild(text(630,268,'NSTREAMS=4 (sweet spot)',COLORS.KEY,10,'bold'));
-  s.appendChild(text(630,284,'DMA: ~488 GB @ PCIe4 32GB/s',COLORS.META,9,'normal','monospace'));
-  s.appendChild(text(630,300,'= 15.3s DMA floor',COLORS.META,9,'normal','monospace'));
+  const W=900,H=360,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
+  s.appendChild(txt(W/2,25,'GPU Pipeline: Phase 1 Data Flow (Tables 2-9)',C.KEY,15,'bold','middle'));
+  s.appendChild(rect(40,100,130,120,C.HDR,0.12,C.EDGE,1,5));
+  s.appendChild(txt(105,90,'CPU RAM',C.HDR,13,'bold','middle'));
+  s.appendChild(txt(105,115,'host buckets',C.TEXT,10,'normal','middle'));
+  s.appendChild(txt(105,135,'(non-pinned)',C.TEXT,9,'normal','middle'));
+  s.appendChild(txt(105,155,'~30 GB total',C.META,10,'normal','middle'));
+  s.appendChild(txt(105,175,'chunked: 16MiB',C.META,9,'normal','middle'));
+  s.appendChild(rect(730,100,130,120,C.STREAM,0.08,C.EDGE,1,5));
+  s.appendChild(txt(795,90,'GPU',C.STREAM,13,'bold','middle'));
+  s.appendChild(txt(795,115,'device buffers',C.TEXT,10,'normal','middle'));
+  s.appendChild(txt(795,135,'(pinned DMA)',C.TEXT,9,'normal','middle'));
+  s.appendChild(txt(795,155,'reused/bucket',C.META,10,'normal','middle'));
+  for(let i=0;i<4;i++){const y=115+i*25;
+    s.appendChild(txt(50,y+5,'S'+i,C.STREAM,10,'bold'));
+    s.appendChild(arrow(170,y+5,725,y+5,C.STREAM));
+    s.appendChild(arrow(725,y+12,170,y+12,C.PD));}
+  s.appendChild(txt(450,90,'Upload (PCIe DMA)',C.STREAM,11,'bold','middle'));
+  s.appendChild(txt(450,225,'Download (PCIe DMA)',C.PD,11,'bold','middle'));
+  s.appendChild(rect(350,80,200,120,C.F1,0.06,C.EDGE,1,4));
+  s.appendChild(txt(450,75,'GPU Compute',C.F1,12,'bold','middle'));
+  ['scatter_2','hybrid_sort_y','match_p1','eval_p1_tx','write_pd'].forEach((k,i)=>{
+    s.appendChild(rect(360,95+i*20,180,16,C.F1,0.1,C.EDGE,0.5,2));
+    s.appendChild(txt(450,106+i*20,k,C.F1,9,'bold','middle'));});
+  s.appendChild(rect(300,270,300,35,C.DISK,0.12,C.EDGE,1,4));
+  s.appendChild(txt(450,292,'Disk (Phase 2 only)',C.DISK,11,'bold','middle'));
+  s.appendChild(txt(450,332,'Phase 1 = pure RAM ↔ GPU. No disk I/O.',C.TEXT,10,'normal','middle'));
+  s.appendChild(rect(620,250,260,60,C.PANEL,0.6,C.EDGE,1,4));
+  s.appendChild(txt(630,268,'NSTREAMS=4 (sweet spot)',C.KEY,10,'bold'));
+  s.appendChild(txt(630,284,'DMA: ~488 GB @ PCIe4 32GB/s',C.META,9,'normal','monospace'));
+  s.appendChild(txt(630,300,'= 15.3s DMA floor',C.META,9,'normal','monospace'));
   return s;
 },
 info:{t:'GPU Pipeline (Phase 1)',d:'How data flows between CPU RAM and GPU for tables 2-9.',
-body:`<div class="k">4 CUDA streams run in parallel. Each stream processes every 4th bucket.</div>
+body:`<div class="k">4 CUDA streams run in parallel. Each stream processes every 4th main bucket.</div>
 <h3>Per-bucket pipeline</h3>
-<div class="d">1. Upload: RAM bucket → GPU device buffer (PCIe DMA)</div>
-<div class="d">2. Compute: GPU kernels (scatter, sort, match, eval)</div>
-<div class="d">3. Download: GPU device buffer → RAM bucket (PCIe DMA)</div>
+<div class="d">1. Upload: RAM bucket → GPU device buffer (PCIe DMA, upload thread)</div>
+<div class="d">2. Compute: GPU kernels (scatter, sort, match, eval, write)</div>
+<div class="d">3. Download: GPU device buffer → RAM bucket (PCIe DMA, download thread)</div>
 <h3>Streams</h3>
 <div class="s">NSTREAMS=4 (sweet spot for RTX 5090)</div>
-<div class="s">Stream k processes buckets k, k+4, k+8, ...</div>
-<div class="s">Upload/download threads run concurrently with compute</div>
+<div class="s">Stream k processes main buckets k, k+4, k+8, ...</div>
+<div class="s">Upload/download threads overlap with compute (barrier-synchronized)</div>
 <h3>Memory</h3>
-<div class="s">RAM: host buckets (non-pinned, chunked). ~30 GB total.</div>
+<div class="s">RAM: host buckets (non-pinned, chunked 16MiB). ~30 GB total.</div>
 <div class="s">GPU: device buffers (pinned DMA). Reused per bucket.</div>
 <div class="s">Disk: only phase 2 writes to disk. Phase 1 is pure RAM↔GPU.</div>
-<div class="k">DMA is the bottleneck: ~488 GB transfers at PCIe4 32 GB/s = 15.3s floor.</div>
+<div class="k">DMA is the bottleneck: ~488 GB at PCIe4 32 GB/s = 15.3s floor.</div>
 <div class="s">Measured: 28.7s for tables 2-9 (89% pipeline efficiency)</div>`}
 });
 
-// --- Scene 6: Phase 2 ---
+// ===== Scene 7: Phase 2 — Remap =====
 scenes.push({
-name:'Phase 2: Parks',
-desc:'Two passes: compact positions (mark_used+remap), then sort+delta-encode → park file.',
+name:'Phase 2: Remap',
+desc:'mark_used bitfield → count_used popcount → remap_pos: sparse 30b → compact 29b.',
 build(){
-  const W=900,H=380;
-  const s=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
-  s.appendChild(text(W/2,25,'Phase 2: Park Encoding',COLORS.KEY,15,'bold','middle'));
-  // Pass 1
-  s.appendChild(rect(40,60,160,50,COLORS.PD,0.08,COLORS.PD,1,4));
-  s.appendChild(text(120,80,'Pass 1: Compaction',COLORS.PD,12,'bold','middle'));
-  s.appendChild(text(120,98,'mark_used + count + remap',COLORS.TEXT,9,'normal','middle'));
-  // Raw PD (sparse)
-  s.appendChild(rect(50,130,140,30,COLORS.PD,0.4,COLORS.EDGE,1,3));
-  s.appendChild(text(120,150,'raw PD (sparse)',COLORS.PD,10,'bold','middle'));
-  s.appendChild(text(120,175,'30-bit positions, gaps',COLORS.TEXT,9,'normal','middle'));
-  // Arrow
-  s.appendChild(arrow(190,145,260,145,COLORS.FLOW));
-  // Compact PD
-  s.appendChild(rect(260,130,140,30,COLORS.PD,0.5,COLORS.EDGE,1,3));
-  s.appendChild(text(330,150,'compact PD (dense)',COLORS.PD,10,'bold','middle'));
-  s.appendChild(text(330,175,'29-bit, no gaps',COLORS.TEXT,9,'normal','middle'));
-  // Pass 2
-  s.appendChild(rect(430,60,160,50,COLORS.Y,0.08,COLORS.Y,1,4));
-  s.appendChild(text(510,80,'Pass 2: Encoding',COLORS.Y,12,'bold','middle'));
-  s.appendChild(text(510,98,'sort + delta-encode + ANS',COLORS.TEXT,9,'normal','middle'));
-  // Arrow from compact to pass 2
-  s.appendChild(arrow(400,145,430,145,COLORS.FLOW));
-  // Park types
-  s.appendChild(rect(430,130,60,30,COLORS.Y,0.5,COLORS.EDGE,1,3));
-  s.appendChild(text(460,150,'Y park',COLORS.Y,9,'bold','middle'));
-  s.appendChild(rect(500,130,60,30,COLORS.PD,0.5,COLORS.EDGE,1,3));
-  s.appendChild(text(530,150,'PD park',COLORS.PD,9,'bold','middle'));
-  s.appendChild(rect(570,130,60,30,COLORS.X,0.5,COLORS.EDGE,1,3));
-  s.appendChild(text(600,150,'X park',COLORS.X,9,'bold','middle'));
-  // Arrow to file
-  s.appendChild(arrow(630,145,700,145,COLORS.FLOW));
-  // File
-  s.appendChild(rect(700,120,160,50,COLORS.HDR,0.1,COLORS.EDGE,1,4));
-  s.appendChild(text(780,145,'Plot File',COLORS.HDR,12,'bold','middle'));
-  s.appendChild(text(780,162,'14.6 GB on disk',COLORS.META,9,'normal','middle'));
-  // Park detail
-  s.appendChild(rect(40,220,820,120,COLORS.PANEL,0.5,COLORS.EDGE,1,4));
-  s.appendChild(text(50,240,'Park Formats:',COLORS.TEXT,11,'bold'));
-  // Y park
-  s.appendChild(rect(50,255,250,28,COLORS.Y,0.15,COLORS.Y,0.5,2));
-  s.appendChild(text(175,273,'Y park: [4B first Y][8191 deltas @2.25b]',COLORS.Y,9,'normal','middle'));
-  s.appendChild(text(175,295,'≈ 2308 bytes per park',COLORS.META,9,'normal','middle'));
-  // PD park
-  s.appendChild(rect(310,255,250,28,COLORS.PD,0.15,COLORS.PD,0.5,2));
-  s.appendChild(text(435,273,'PD park: [2048×29b pos][delta @2.65b]',COLORS.PD,9,'normal','middle'));
-  s.appendChild(text(435,295,'≈ 8103 bytes per park',COLORS.META,9,'normal','middle'));
-  // X park
-  s.appendChild(rect(570,255,250,28,COLORS.X,0.15,COLORS.X,0.5,2));
-  s.appendChild(text(695,273,'X park: [2048×57b line points]',COLORS.X,9,'normal','middle'));
-  s.appendChild(text(695,295,'≈ 14592 bytes per park',COLORS.META,9,'normal','middle'));
-  // Key
-  s.appendChild(rect(40,335,820,30,COLORS.KEY,0.08,COLORS.KEY,1,4));
-  s.appendChild(text(W/2,355,'Phase 2 remaps sparse 30-bit positions to dense 29-bit indices, then delta-encodes for compression',COLORS.KEY,11,'bold','middle'));
+  const W=900,H=380,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
+  s.appendChild(txt(W/2,25,'Phase 2 Pass 1: Position Compaction',C.KEY,15,'bold','middle'));
+  // Step 1: mark_used
+  s.appendChild(rect(40,55,130,40,C.PD,0.1,C.PD,1,4));
+  s.appendChild(txt(105,72,'mark_used',C.PD,11,'bold','middle'));
+  s.appendChild(txt(105,88,'bitfield of referenced positions',C.TEXT,8,'normal','middle'));
+  // Bitfield viz
+  s.appendChild(rect(40,110,130,25,C.PD,0.2,C.EDGE,1,2));
+  const bits=[];
+  for(let i=0;i<24;i++){const on=Math.random()>0.5;
+    s.appendChild(rect(45+i*5,115,4,15,on?C.PD:'#1a2030',on?0.7:0.3,C.EDGE,0.3,1));}
+  s.appendChild(txt(105,150,'bitfield (1=used)',C.TEXT,8,'normal','middle'));
+  s.appendChild(arrow(170,130,230,130,C.FLOW));
+  // Step 2: count_used
+  s.appendChild(rect(230,55,130,40,C.PD,0.1,C.PD,1,4));
+  s.appendChild(txt(295,72,'count_used',C.PD,11,'bold','middle'));
+  s.appendChild(txt(295,88,'__popc per uint32 word',C.TEXT,8,'normal','middle'));
+  s.appendChild(rect(230,110,130,25,C.PD,0.2,C.EDGE,1,2));
+  s.appendChild(txt(295,128,'popcount per group',C.TEXT,8,'normal','middle'));
+  s.appendChild(arrow(360,130,420,130,C.FLOW));
+  // Step 3: remap_pos
+  s.appendChild(rect(420,55,130,40,C.PD,0.1,C.PD,1,4));
+  s.appendChild(txt(485,72,'remap_pos',C.PD,11,'bold','middle'));
+  s.appendChild(txt(485,88,'compact dense index',C.TEXT,8,'normal','middle'));
+  s.appendChild(rect(420,110,130,25,C.PD,0.2,C.EDGE,1,2));
+  s.appendChild(txt(485,128,'offset[pos/32] + popc(below)',C.TEXT,7,'normal','middle'));
+  s.appendChild(arrow(550,130,610,130,C.FLOW));
+  // Result
+  s.appendChild(rect(610,55,180,40,C.KEY,0.08,C.KEY,1,4));
+  s.appendChild(txt(700,72,'Compact PD',C.KEY,11,'bold','middle'));
+  s.appendChild(txt(700,88,'29-bit dense, no gaps',C.TEXT,8,'normal','middle'));
+  s.appendChild(rect(610,110,180,25,C.KEY,0.15,C.KEY,0.5,2));
+  s.appendChild(txt(700,128,'sequential indices',C.TEXT,8,'normal','middle'));
+  // Detail panel
+  s.appendChild(rect(40,175,820,170,C.PANEL,0.5,C.EDGE,1,4));
+  s.appendChild(txt(50,193,'How remap_pos works:',C.TEXT,11,'bold'));
+  s.appendChild(txt(50,212,'Given a sparse position pos in the raw PD:',C.TEXT,10,'normal'));
+  s.appendChild(txt(50,230,'  word = pos / 32, bit = pos % 32',C.META,10,'normal','monospace'));
+  s.appendChild(txt(50,246,'  compact_index = offset[word] + popcount(bitfield[word] & mask_below(bit))',C.META,10,'normal','monospace'));
+  s.appendChild(txt(50,266,'  where offset[word] = prefix sum of popcounts of all words before it',C.META,10,'normal','monospace'));
+  s.appendChild(txt(50,292,'Effect: dead entries (not referenced by any child) are removed.',C.TEXT,10,'normal'));
+  s.appendChild(txt(50,308,'  Raw 30-bit positions with gaps → compact 29-bit sequential indices.',C.TEXT,10,'normal'));
+  s.appendChild(txt(50,326,'  This is why park positions are 29 bits (= ksize), not 30 bits.',C.KEY,10,'bold'));
   return s;
 },
-info:{t:'Phase 2: Park Encoding',d:'Convert raw RAM buckets to compressed park format, write to disk.',
-body:`<div class="k">Phase 2 has TWO passes per table. It remaps positions to compact indices, then encodes parks.</div>
-<h3>Pass 1: Compaction</h3>
-<div class="d">1. mark_used: build bitfield of which positions are referenced</div>
-<div class="d">2. count_used: count set bits per group</div>
-<div class="d">3. remap_pd: replace sparse positions with dense compact indices</div>
-<div class="s">Raw PD: position = y × max_bucket_size + global_pos (sparse, 30-bit)</div>
-<div class="s">Compact PD: position = sequential index (dense, 29-bit, no gaps)</div>
-<h3>Pass 2: Encoding</h3>
-<div class="d">1. Sort entries by Y (within bucket)</div>
-<div class="d">2. Delta-encode: store first value, then differences</div>
-<div class="d">3. ANS-encode deltas into compact bit stream</div>
+info:{t:'Phase 2 Pass 1: Remap',d:'Compact sparse positions to dense sequential indices.',
+body:`<div class="k">Phase 2 Pass 1 removes dead entries and remaps positions to compact indices.</div>
+<h3>mark_used</h3>
+<div class="d">For each entry in table t, read its PD, extract P_1 and P_2 (parent positions). Set bits in a bitfield at P_1 and P_2. This marks which positions in table t-1 are actually referenced.</div>
+<h3>count_used</h3>
+<div class="d">Count set bits per uint32 word: count_out[x] = __popc(bitfield[x]). Then calc_offset_sum computes prefix sums.</div>
+<h3>remap_pos</h3>
+<div class="d">For a sparse position pos: compact = offset[pos/32] + popcount(bitfield[pos/32] &amp; mask_below(pos%32)). This gives the dense sequential index.</div>
+<div class="c">// remap_pos kernel:
+uint32_t remap_pos(B, offset, pos) {
+    return offset[pos / 32]
+         + __popc(B[pos / 32] &amp; ((1 << (pos % 32)) - 1));
+}</div>
+<div class="s">Raw PD: 30-bit positions with gaps (dead entries)</div>
+<div class="s">Compact PD: 29-bit sequential indices (no gaps)</div>
+<div class="k">Park positions are 29 bits (= ksize) because compaction removes all gaps.</div>`}
+});
+
+// ===== Scene 8: Phase 2 — Park Encoding =====
+scenes.push({
+name:'Phase 2: Parks',
+desc:'Pass 2: sort by Y, delta-encode, ANS-encode → park file. 3 park types.',
+build(){
+  const W=900,H=380,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
+  s.appendChild(txt(W/2,25,'Phase 2 Pass 2: Park Encoding',C.KEY,15,'bold','middle'));
+  // Flow
+  s.appendChild(rect(40,60,120,45,C.PD,0.1,C.PD,1,4));
+  s.appendChild(txt(100,78,'Compact PD',C.PD,10,'bold','middle'));
+  s.appendChild(txt(100,94,'(from pass 1)',C.TEXT,8,'normal','middle'));
+  s.appendChild(arrow(160,82,220,82,C.FLOW));
+  s.appendChild(rect(220,60,100,45,C.Y,0.1,C.Y,1,4));
+  s.appendChild(txt(270,78,'Sort by Y',C.Y,10,'bold','middle'));
+  s.appendChild(txt(270,94,'within bucket',C.TEXT,8,'normal','middle'));
+  s.appendChild(arrow(320,82,380,82,C.FLOW));
+  s.appendChild(rect(380,60,100,45,C.Y,0.1,C.Y,1,4));
+  s.appendChild(txt(430,78,'Delta-encode',C.Y,10,'bold','middle'));
+  s.appendChild(txt(430,94,'first + diffs',C.TEXT,8,'normal','middle'));
+  s.appendChild(arrow(480,82,540,82,C.FLOW));
+  s.appendChild(rect(540,60,100,45,C.Y,0.1,C.Y,1,4));
+  s.appendChild(txt(590,78,'ANS-encode',C.Y,10,'bold','middle'));
+  s.appendChild(txt(590,94,'bit stream',C.TEXT,8,'normal','middle'));
+  s.appendChild(arrow(640,82,700,82,C.FLOW));
+  s.appendChild(rect(700,55,160,55,C.HDR,0.1,C.EDGE,1,4));
+  s.appendChild(txt(780,78,'Park File',C.HDR,11,'bold','middle'));
+  s.appendChild(txt(780,94,'14.6 GB',C.META,9,'normal','middle'));
+  // Park format detail
+  s.appendChild(rect(40,140,820,210,C.PANEL,0.5,C.EDGE,1,4));
+  s.appendChild(txt(50,158,'Park Formats (3 types):',C.TEXT,11,'bold'));
+  // Y park
+  s.appendChild(rect(50,170,250,50,C.Y,0.12,C.Y,0.5,2));
+  s.appendChild(txt(175,185,'Y park',C.Y,10,'bold','middle'));
+  s.appendChild(txt(175,200,'[4B first Y][8191 deltas @~2.25b]',C.TEXT,8,'normal','middle'));
+  s.appendChild(txt(175,215,'≈ 2308 bytes per park',C.META,8,'normal','middle'));
+  // PD park
+  s.appendChild(rect(310,170,250,50,C.PD,0.12,C.PD,0.5,2));
+  s.appendChild(txt(435,185,'PD park',C.PD,10,'bold','middle'));
+  s.appendChild(txt(435,200,'[2048×29b pos][delta @~2.65b]',C.TEXT,8,'normal','middle'));
+  s.appendChild(txt(435,215,'≈ 8103 bytes per park',C.META,8,'normal','middle'));
+  // X park
+  s.appendChild(rect(570,170,250,50,C.X,0.12,C.X,0.5,2));
+  s.appendChild(txt(695,185,'X park',C.X,10,'bold','middle'));
+  s.appendChild(txt(695,200,'[2048×57b line points]',C.TEXT,8,'normal','middle'));
+  s.appendChild(txt(695,215,'≈ 14592 bytes per park',C.META,8,'normal','middle'));
+  // Line point explanation
+  s.appendChild(rect(40,235,820,80,C.PANEL,0.5,C.EDGE,1,4));
+  s.appendChild(txt(50,253,'X park stores line points (57 bits each):',C.TEXT,10,'bold'));
+  s.appendChild(txt(50,270,'LinePointToSquare(line_point) → (X1, X2) — maps 1D line to 2D square',C.META,9,'normal','monospace'));
+  s.appendChild(txt(50,286,'Each table-2 entry has 2 X values packed as one 57-bit line point',C.TEXT,9,'normal'));
+  s.appendChild(txt(50,306,'write_x2 kernel: X1,X2 = read_bits(X_in, P_i*X2SIZE, XBITS), write at output offset',C.META,9,'normal','monospace'));
+  // Key
+  s.appendChild(rect(40,325,820,30,C.KEY,0.08,C.KEY,1,4));
+  s.appendChild(txt(W/2,343,'Phase 2: compact positions → sort → delta-encode → ANS → park file. Writes 14.6 GB.',C.KEY,11,'bold','middle'));
+  return s;
+},
+info:{t:'Phase 2 Pass 2: Park Encoding',d:'Convert compact PD to compressed park format, write to disk.',
+body:`<div class="k">Phase 2 Pass 2 encodes the compact PD into park files on disk.</div>
+<h3>Encoding Steps</h3>
+<div class="d">1. Sort entries by Y within each main bucket</div>
+<div class="d">2. Delta-encode: store first value, then differences between consecutive values</div>
+<div class="d">3. ANS-encode deltas into compact bit stream (asymmetric numeral systems)</div>
 <div class="d">4. Write park to file: [first value][delta bit stream]</div>
 <h3>Park Types</h3>
-<div class="s">Y park: [4B first Y][8191 deltas @ ~2.25 bits each] ≈ 2308 bytes</div>
-<div class="s">PD park: [2048×29-bit positions][delta stream @ ~2.65 bits] ≈ 8103 bytes</div>
+<div class="s">Y park: [4B first Y][8191 deltas @ ~2.25 bits] ≈ 2308 bytes</div>
+<div class="s">PD park: [2048×29-bit compact positions][delta @ ~2.65 bits] ≈ 8103 bytes</div>
 <div class="s">X park: [2048×57-bit line points] ≈ 14592 bytes</div>
+<h3>X Park: Line Points</h3>
+<div class="d">Table 2 stores X values as line points: a 57-bit value encoding a pair (X1, X2) via LinePointToSquare — a mapping from 1D line to 2D square that ensures uniqueness.</div>
+<div class="s">write_x2: X1 = read_bits(X_in, P_i*X2SIZE, XBITS), X2 = read_bits(X_in, P_i*X2SIZE+XBITS, XBITS)</div>
+<div class="s">X2SIZE = 64 bits (2×29-bit X values, padded)</div>
 <div class="k">Phase 2 time: ~5-7s. Writes 14.6 GB to disk.</div>`}
 });
 
-// --- Scene 7: Binary Tree ---
+// ===== Scene 9: Binary Tree =====
 scenes.push({
 name:'Binary Tree',
-desc:'1 root at T9 → 2→4→...→256 leaves. Perfect depth-8 binary tree per proof.',
+desc:'1 root at T9 → 2→4→...→256 leaves at T1. Depth-8 perfect binary tree.',
 build(){
-  const W=900,H=360;
-  const s=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
-  s.appendChild(text(W/2,25,'Proof = Binary Tree Walk (depth 8)',COLORS.KEY,15,'bold','middle'));
+  const W=900,H=380,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
+  s.appendChild(txt(W/2,25,'Proof = Binary Tree Walk (depth 8)',C.KEY,15,'bold','middle'));
   const cx=450,levels=9;
   for(let k=0;k<levels;k++){
-    const count=Math.min(1<<k,64); // cap visual
+    const count=Math.min(1<<k,64);
     const y=50+k*38;
     const spread=Math.min(W-100,800/Math.max(1,1<<Math.min(k,6)));
     for(let i=0;i<count;i++){
       const x=cx-count*spread/2+i*spread+spread/2;
-      const c=k===0?COLORS.Y:k===levels-1?COLORS.X:COLORS.PD;
-      const r=circle(x,y,Math.max(2.5,6-k*0.5),c,0.8,COLORS.EDGE,0.5);
+      const c=k===0?C.Y:k===levels-1?C.X:C.PD;
+      const r=circle(x,y,Math.max(2.5,6-k*0.5),c,0.8,C.EDGE,0.5);
       r.setAttribute('class','pulse-ani');r.style.animationDelay=(k*0.15+i*0.02)+'s';
       s.appendChild(r);
-      // Edges to children
       if(k<levels-1){
-        const childCount=Math.min(count*2,64);
-        const childSpread=Math.min(W-100,800/Math.max(1,1<<Math.min(k+1,6)));
-        const childY=50+(k+1)*38;
-        for(let c2=2*i;c2<2*i+2;c2++){
-          if(c2<childCount){
-            const cx2=cx-childCount*childSpread/2+c2*childSpread+childSpread/2;
-            s.appendChild(line(x,y,cx2,childY,COLORS.EDGE,0.5,0.2));
-          }
-        }
-      }
+        const cc=Math.min(count*2,64);
+        const cs=Math.min(W-100,800/Math.max(1,1<<Math.min(k+1,6)));
+        const cy=50+(k+1)*38;
+        for(let c2=2*i;c2<2*i+2;c2++){if(c2<cc){
+          const cx2=cx-cc*cs/2+c2*cs+cs/2;
+          s.appendChild(line(x,y,cx2,cy,C.EDGE,0.5,0.2));}}}
     }
-    // Level label
-    s.appendChild(text(50,y+4,k===0?'T9 (1 root)':k===levels-1?'T1 (256 X)':'T'+(9-k),COLORS.TEXT,10,'bold'));
-    s.appendChild(text(850,y+4,Math.min(1<<k,256)+' entries',COLORS.META,9,'bold','middle'));
+    s.appendChild(txt(50,y+4,k===0?'T9 (1 root)':k===levels-1?'T1 (256 X)':'T'+(9-k),C.TEXT,10,'bold'));
+    s.appendChild(txt(850,y+4,Math.min(1<<k,256)+'',C.META,9,'bold','middle'));
   }
-  s.appendChild(rect(100,400,700,28,COLORS.KEY,0.08,COLORS.KEY,1,4));
-  s.appendChild(text(W/2,418,'Each PD read gives 2 parent pointers. 7 doublings: 1 → 2 → 4 → 8 → 16 → 32 → 64 → 128 → 256',COLORS.KEY,11,'bold','middle'));
+  s.appendChild(rect(80,408,740,28,C.KEY,0.08,C.KEY,1,4));
+  s.appendChild(txt(W/2,426,'Each PD read gives 2 parent pointers. 7 doublings: 1→2→4→8→16→32→64→128→256',C.KEY,11,'bold','middle'));
   return s;
 },
-info:{t:'Proof = Binary Tree',d:'A proof is a binary tree walk: from 1 root to 256 X value leaves.',
+info:{t:'Proof = Binary Tree',d:'A proof is a binary tree walk: 1 root → 256 X value leaves.',
 body:`<div class="k">Every proof is a perfect binary tree of depth 8. One root, 256 leaves.</div>
-<h3>The Walk</h3>
+<h3>The Walk (7 PD park reads)</h3>
 <div class="s">Table 9 → 1 entry (root, the Y match)</div>
 <div class="s">Table 8 → 2 entries (root's parents)</div>
 <div class="s">Table 7 → 4 entries</div>
@@ -568,120 +636,170 @@ body:`<div class="k">Every proof is a perfect binary tree of depth 8. One root, 
 <div class="c">pointers = [root_index]      // 1 entry
 for t in 9→2:               // 7 steps
   new = []
-  for idx in pointers:         // doubles
+  for idx in pointers:         // doubles each step
     PD = read_park(t, idx)
-    left  = PD >> 5            // parent 1
-    right = left + (PD & 31) + 1
+    left  = PD >> 5            // parent 1 (compact index)
+    right = left + (PD & 31) + 1  // parent 2
     new += [left, right]
   pointers = new               // 2x each step
 // 128 pointers → read X park → 256 X values</div>
 <div class="s">Proof = 256 uint32 X values ≈ 1 KB</div>
-<div class="k">The plot file stores back-pointers for ALL 536M trees. That is why PD is 79% of the file.</div>`}
+<div class="k">The plot stores back-pointers for ALL 536M trees. PD = 79% of file.</div>`}
 });
 
-// --- Scene 8: Proof Lookup ---
+// ===== Scene 10: Proof Lookup =====
 scenes.push({
 name:'Proof Lookup',
-desc:'Scan Y → walk PD parks (9→2) → read X park → 256 X values. Milliseconds.',
+desc:'Scan Y → walk PD parks (9→2) → read X park → LinePointToSquare → 256 X.',
 build(){
-  const W=900,H=340;
-  const s=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
-  s.appendChild(text(W/2,25,'Proof Lookup: Reading the File',COLORS.KEY,15,'bold','middle'));
-  // File bar
-  const barY=70,barH=40,barW=840,barX=30;
+  const W=900,H=370,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
+  s.appendChild(txt(W/2,25,'Proof Lookup: Reading the File',C.KEY,15,'bold','middle'));
+  const bY=65,bH=38,bW=840,bX=30;
   const secs=[
-    {n:'Y',sz:0.008,c:COLORS.Y},{n:'PD0',sz:0.113,c:COLORS.PD},
-    {n:'PD1',sz:0.113,c:COLORS.PD},{n:'PD2',sz:0.113,c:COLORS.PD},
-    {n:'PD3',sz:0.113,c:COLORS.PD},{n:'PD4',sz:0.113,c:COLORS.PD},
-    {n:'PD5',sz:0.113,c:COLORS.PD},{n:'PD6',sz:0.113,c:COLORS.PD},
-    {n:'X',sz:0.203,c:COLORS.X}];
-  let x=barX;const fb=[];
-  secs.forEach((sec,i)=>{
-    const w=sec.sz*barW;if(w<2)return;
-    const r=rect(x,barY,w,barH,sec.c,0.3,COLORS.EDGE,0.5,2);
-    r.id='fb-'+i;s.appendChild(r);fb.push({rect:r,x:x+w/2,w,sec,i});
-    s.appendChild(text(x+w/2,barY-6,sec.n,sec.c,9,'bold','middle'));x+=w;
-  });
-  // Step arrows
-  s.appendChild(text(fb[0].x,barY+barH+20,'1. Scan Y',COLORS.Y,11,'bold','middle'));
-  s.appendChild(text(fb[4].x,barY+barH+20,'2. Walk PD parks',COLORS.PD,11,'bold','middle'));
-  s.appendChild(text(fb[8].x,barY+barH+20,'3. Read X park',COLORS.X,11,'bold','middle'));
-  // Detail box
-  s.appendChild(rect(30,150,840,150,COLORS.PANEL,0.5,COLORS.EDGE,1,4));
-  s.appendChild(text(40,170,'Step 1: Scan Y table for [Y_begin, Y_begin+16)',COLORS.Y,11,'bold'));
-  s.appendChild(text(50,188,'Y_begin = SHA256("plot_challenge"‖plot_id‖challenge) & KMASK',COLORS.META,10,'normal','monospace'));
-  s.appendChild(text(50,204,'Y is sorted → binary search. Each hit = 1 tree root at table 9.',COLORS.TEXT,10,'normal'));
-  s.appendChild(text(40,225,'Step 2: Walk PD parks from table 9 down to table 2',COLORS.PD,11,'bold'));
-  s.appendChild(text(50,243,'PD[0]: T9→T8 (2 ptrs) → PD[1]: T8→T7 (4) → ... → PD[6]: T3→T2 (128 ptrs)',COLORS.META,10,'normal','monospace'));
-  s.appendChild(text(50,259,'Each PD read: position = compact index, delta = ANS-decoded offset',COLORS.TEXT,10,'normal'));
-  s.appendChild(text(40,280,'Step 3: Read X park → 256 X values',COLORS.X,11,'bold'));
-  s.appendChild(text(50,298,'128 table-2 indices → read line points (57 bits) → split into (X1, X2)',COLORS.META,10,'normal','monospace'));
+    {n:'Y',sz:0.008,c:C.Y},{n:'PD0',sz:0.113,c:C.PD},
+    {n:'PD1',sz:0.113,c:C.PD},{n:'PD2',sz:0.113,c:C.PD},
+    {n:'PD3',sz:0.113,c:C.PD},{n:'PD4',sz:0.113,c:C.PD},
+    {n:'PD5',sz:0.113,c:C.PD},{n:'PD6',sz:0.113,c:C.PD},
+    {n:'X',sz:0.203,c:C.X}];
+  let x=bX;const fb=[];
+  secs.forEach((sec,i)=>{const w=sec.sz*bW;if(w<2)return;
+    const r=rect(x,bY,w,bH,sec.c,0.3,C.EDGE,0.5,2);
+    s.appendChild(r);fb.push({rect:r,x:x+w/2,w,sec,i});
+    s.appendChild(txt(x+w/2,bY-6,sec.n,sec.c,9,'bold','middle'));x+=w;});
+  s.appendChild(txt(fb[0].x,bY+bH+18,'1. Scan Y',C.Y,11,'bold','middle'));
+  s.appendChild(txt(fb[4].x,bY+bH+18,'2. Walk PD parks',C.PD,11,'bold','middle'));
+  s.appendChild(txt(fb[8].x,bY+bH+18,'3. Read X park',C.X,11,'bold','middle'));
+  // Detail
+  s.appendChild(rect(30,145,840,200,C.PANEL,0.5,C.EDGE,1,4));
+  s.appendChild(txt(40,163,'Step 1: Scan Y table for [Y_begin, Y_begin+16)',C.Y,11,'bold'));
+  s.appendChild(txt(50,180,'Y_begin = SHA256("plot_challenge"‖plot_id‖challenge) & KMASK',C.META,10,'normal','monospace'));
+  s.appendChild(txt(50,196,'Y is sorted → binary search. Each hit = 1 tree root at table 9.',C.TEXT,10,'normal'));
+  s.appendChild(txt(40,218,'Step 2: Walk PD parks from T9 down to T2 (7 reads, doubling)',C.PD,11,'bold'));
+  s.appendChild(txt(50,235,'PD[0]: T9→T8 (2 ptrs) → PD[1]: T8→T7 (4) → ... → PD[6]: T3→T2 (128 ptrs)',C.META,10,'normal','monospace'));
+  s.appendChild(txt(50,251,'Each PD: position = compact 29-bit index, delta = ANS-decoded offset',C.TEXT,10,'normal'));
+  s.appendChild(txt(40,273,'Step 3: Read X park → 256 X values',C.X,11,'bold'));
+  s.appendChild(txt(50,290,'128 table-2 indices → read 57-bit line points → LinePointToSquare → (X1, X2)',C.META,10,'normal','monospace'));
+  s.appendChild(txt(50,306,'X2SIZE=64 bits per entry (2×29-bit X values packed)',C.META,10,'normal','monospace'));
   // Asymmetry
-  s.appendChild(rect(100,310,700,24,COLORS.KEY,0.08,COLORS.KEY,1,4));
-  s.appendChild(text(W/2,326,'Lookup = milliseconds. Plotting = 42 seconds. This IS proof-of-space.',COLORS.KEY,11,'bold','middle'));
+  s.appendChild(rect(100,325,700,24,C.KEY,0.08,C.KEY,1,4));
+  s.appendChild(txt(W/2,341,'Lookup = milliseconds. Plotting = 42 seconds. This IS proof-of-space.',C.KEY,11,'bold','middle'));
   return s;
 },
 info:{t:'Proof Lookup (Farming)',d:'How the file is read to answer a challenge.',
 body:`<div class="k">Farming = reading the file to find proofs. Three steps, all fast.</div>
 <h3>Step 1: Scan Y table</h3>
 <div class="d">challenge → Y_begin = SHA256("plot_challenge"‖plot_id‖challenge) &amp; KMASK</div>
-<div class="d">Scan Y parks for entries in [Y_begin, Y_begin+16)</div>
+<div class="d">Scan Y parks for entries in [Y_begin, Y_begin+16) (plot_filter=4, window=16)</div>
 <div class="s">Y is sorted → binary search. Each hit = 1 tree root.</div>
-<h3>Step 2: Walk PD parks</h3>
-<div class="d">For each Y match, read PD parks from table 9 down to table 2:</div>
-<div class="s">PD[0]: T9→T8 → 2 pointers (read compact position + delta)</div>
+<h3>Step 2: Walk PD parks (7 levels, doubling)</h3>
+<div class="s">PD[0]: T9→T8 → 2 pointers (compact position + delta)</div>
 <div class="s">PD[1]: T8→T7 → 4 pointers</div>
 <div class="s">...7 parks, doubling each time...</div>
 <div class="s">PD[6]: T3→T2 → 128 pointers</div>
-<h3>Step 3: Read X park</h3>
-<div class="d">128 table-2 indices → read X park → 256 X values</div>
-<div class="s">X park stores line points: 57 bits each → split into (X1, X2)</div>
+<h3>Step 3: Read X park → 256 X values</h3>
+<div class="d">128 table-2 indices → read X park → 57-bit line points → LinePointToSquare → (X1, X2)</div>
+<div class="s">Each X park entry = 64 bits (X2SIZE), containing two 29-bit X values</div>
 <h3>The asymmetry</h3>
-<div class="k">Lookup = O(parks read) = milliseconds. Plotting = O(536M) = 42 seconds.</div>
-<div class="s">Verification: recompute tree from 256 X values → 1 Y. O(256) = milliseconds.</div>`}
+<div class="k">Lookup = O(parks read) = milliseconds. Plotting = O(536M) = 42 seconds.</div>`}
+});
+
+// ===== Scene 11: Proof Verification =====
+scenes.push({
+name:'Verification',
+desc:'Recompute F1→F9 from 256 X values. Check Y in window + X ordering. Milliseconds.',
+build(){
+  const W=900,H=380,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H});
+  s.appendChild(txt(W/2,25,'Proof Verification: Recompute the Tree',C.KEY,15,'bold','middle'));
+  // Input: 256 X values
+  s.appendChild(rect(50,60,100,40,C.X,0.8,C.EDGE,1,4));
+  s.appendChild(txt(100,78,'256 X values',C.X,11,'bold','middle'));
+  s.appendChild(txt(100,94,'(the proof)',C.TEXT,9,'normal','middle'));
+  s.appendChild(arrow(150,80,210,80,C.FLOW));
+  // F1 recompute
+  s.appendChild(rect(210,55,100,50,C.F1,0.7,C.EDGE,1,4));
+  s.appendChild(txt(260,75,'F1',C.F1,13,'bold','middle'));
+  s.appendChild(txt(260,92,'recompute',C.TEXT,8,'normal','middle'));
+  s.appendChild(txt(260,105,'256×4KB',C.TEXT,8,'normal','middle'));
+  s.appendChild(arrow(310,80,370,80,C.FLOW));
+  // F2-F9
+  s.appendChild(rect(370,55,100,50,C.PD,0.6,C.EDGE,1,4));
+  s.appendChild(txt(420,75,'F2-F9',C.PD,13,'bold','middle'));
+  s.appendChild(txt(420,92,'match+SHA512',C.TEXT,8,'normal','middle'));
+  s.appendChild(txt(420,105,'8 tables',C.TEXT,8,'normal','middle'));
+  s.appendChild(arrow(470,80,530,80,C.FLOW));
+  // Final Y
+  s.appendChild(rect(530,60,80,40,C.Y,0.8,C.EDGE,1,4));
+  s.appendChild(txt(570,78,'Final Y',C.Y,11,'bold','middle'));
+  s.appendChild(txt(570,94,'table 9',C.TEXT,8,'normal','middle'));
+  // Checks
+  s.appendChild(rect(640,55,230,130,C.PANEL,0.6,C.EDGE,1,4));
+  s.appendChild(txt(650,73,'Verification checks:',C.TEXT,11,'bold'));
+  s.appendChild(rect(650,82,210,24,C.KEY,0.08,C.KEY,0.5,2));
+  s.appendChild(txt(755,98,'1. Y in [Y_begin, Y_begin+16)',C.KEY,9,'bold','middle'));
+  s.appendChild(rect(650,112,210,24,C.Y,0.08,C.Y,0.5,2));
+  s.appendChild(txt(755,128,'2. X_out == X_values (ordering)',C.Y,9,'bold','middle'));
+  s.appendChild(rect(650,142,210,24,C.META,0.08,C.META,0.5,2));
+  s.appendChild(txt(755,158,'3. post_filter (top 10 bits)',C.META,9,'bold','middle'));
+  // Compute detail
+  s.appendChild(rect(50,160,530,150,C.PANEL,0.5,C.EDGE,1,4));
+  s.appendChild(txt(60,178,'compute_full() — the verification engine:',C.TEXT,10,'bold'));
+  s.appendChild(txt(60,196,'1. Sort entries by (Y, meta) at each level',C.TEXT,9,'normal'));
+  s.appendChild(txt(60,212,'2. Find (Y, Y+1) pairs → SHA512(meta_L‖meta_R)',C.TEXT,9,'normal'));
+  s.appendChild(txt(60,228,'3. Track LR back-pointers for X extraction',C.TEXT,9,'normal'));
+  s.appendChild(txt(60,244,'4. After T9: deduplicate by meta, extract X values',C.TEXT,9,'normal'));
+  s.appendChild(txt(60,264,'5. Compare X_out with input X_values',C.TEXT,9,'normal'));
+  s.appendChild(txt(60,280,'6. If match → proof valid, compute proof_hash',C.TEXT,9,'normal'));
+  // Key insight
+  s.appendChild(rect(50,310,820,40,C.KEY,0.08,C.KEY,1,4));
+  s.appendChild(txt(W/2,328,'Verification recomputes the ENTIRE tree from 256 X values — no plot file needed.',C.KEY,12,'bold','middle'));
+  s.appendChild(txt(W/2,345,'O(256) work = milliseconds. This is the PoSpace asymmetry: plot=42s, verify=ms.',C.TEXT,11,'normal','middle'));
+  return s;
+},
+info:{t:'Proof Verification',d:'How a proof is verified: recompute the tree from X values.',
+body:`<div class="k">Verification recomputes the entire F1→F9 tree from the 256 X values. No plot file needed.</div>
+<h3>compute_full() algorithm</h3>
+<div class="d">1. compute_f1: for each of 256 X values, recompute F1 → (Y, meta)</div>
+<div class="d">2. For each table t=2..9: sort by (Y, meta), find (Y, Y+1) pairs, SHA512 → new (Y, meta)</div>
+<div class="d">3. Track LR back-pointers at each level for X extraction</div>
+<div class="d">4. After table 9: sort entries, deduplicate by meta, extract X values via LR chain</div>
+<div class="d">5. Compare extracted X_out with input X_values</div>
+<h3>Checks</h3>
+<div class="s">1. Final Y must be in [Y_begin, Y_begin + 2^plot_filter) — challenge window</div>
+<div class="s">2. X_out must equal X_values — proves the X values actually produce this tree</div>
+<div class="s">3. post_filter: SHA256("post_filter"‖challenge‖meta) top 10 bits must be 0</div>
+<div class="s">4. Exactly 1 proof (not more) — deduplication by meta</div>
+<div class="c">// verify() function:
+auto entries = compute(X_values, &amp;X_out, id, ksize, 0);
+if(entries.size() != 1) throw "invalid";
+auto Y = entries[0].first;
+if(Y < Y_0 || Y >= Y_end) throw "invalid Y";
+if(X_out != X_values) throw "invalid proof order";
+// check post_filter, compute proof_hash</div>
+<div class="k">Verification = O(256) = milliseconds. No plot file access needed.</div>`}
 });
 
 // ===== RENDER ENGINE =====
-let cur=0,playing=true,stTimer=0,stDur=10;
+let cur=0,playing=true,stTimer=0,stDur=11;
 const view=document.getElementById('view');
 const infoEl=document.getElementById('info');
 const navEl=document.getElementById('nav');
-
-// Build nav dots
-scenes.forEach((s,i)=>{
-  const d=document.createElement('div');d.className='dot';d.title=s.name;
-  d.onclick=()=>{show(i);playing=false;updatePlayBtn();};
-  navEl.appendChild(d);
-});
-
+scenes.forEach((s,i)=>{const d=document.createElement('div');d.className='dot';d.title=s.name;
+  d.onclick=()=>{show(i);playing=false;updatePlayBtn();};navEl.appendChild(d);});
 function show(i){
   cur=i;const sc=scenes[i];
-  // Render SVG
-  const svg=sc.build();
-  const tmp=document.createElement('div');
-  tmp.appendChild(svg);
+  const svg=sc.build();const tmp=document.createElement('div');tmp.appendChild(svg);
   view.innerHTML='<div class="ani">'+tmp.innerHTML+'</div>';
-  // Info
-  const inf=sc.info;
-  infoEl.innerHTML=`<div class="ani"><h2>${inf.t}</h2><div class="d">${inf.d}</div>${inf.body}</div>`;
-  // Nav dots
+  infoEl.innerHTML=`<div class="ani"><h2>${sc.info.t}</h2><div class="d">${sc.info.d}</div>${sc.info.body}</div>`;
   const dots=navEl.children;
   for(let j=0;j<dots.length;j++)dots[j].className=j===i?'on':j<i?'done':'';
-  stTimer=0;
-}
+  stTimer=0;}
 function updatePlayBtn(){document.getElementById('bpl').textContent=playing?'Pause':'Auto';
   document.getElementById('bpl').classList.toggle('on',playing);}
-
 document.getElementById('bp').onclick=()=>{show((cur-1+scenes.length)%scenes.length)};
 document.getElementById('bn').onclick=()=>{show((cur+1)%scenes.length)};
 document.getElementById('bpl').onclick=()=>{playing=!playing;updatePlayBtn();};
 document.getElementById('br').onclick=()=>{show(0);playing=false;updatePlayBtn();};
-
-// Auto-advance
-setInterval(()=>{
-  if(playing){stTimer+=0.5;if(stTimer>=stDur){show((cur+1)%scenes.length);}}
-},500);
-
+setInterval(()=>{if(playing){stTimer+=0.5;if(stTimer>=stDur){show((cur+1)%scenes.length);}}},500);
 show(0);
 </script>
 </body>
