@@ -64,7 +64,7 @@ export const scene = {
 
     // Comparison
     s.appendChild(rect(40, 330, 840, 65, C.PANEL, 0.5, C.EDGE, 1, 4));
-    s.appendChild(txt(50, 348, 'Measured (PRO 6000, full power):', C.TEXT, 11, 'bold'));
+    s.appendChild(txt(50, 348, 'Measured (PRO 6000, 400W):', C.TEXT, 11, 'bold'));
     s.appendChild(txt(50, 366, 'k29 DMA: ~45s phase1, 488 GB PCIe', C.DMA, 10, 'normal', 'start', true));
     s.appendChild(txt(50, 382, 'k29 VRAM: 21.1s phase1, 0 GB PCIe (2.1× faster)', C.VRAM, 10, 'normal', 'start', true));
     s.appendChild(txt(470, 366, 'k30 VRAM: 60.4s on 2× PRO 6000 (proof found!)', C.VRAM, 10, 'normal', 'start', true));

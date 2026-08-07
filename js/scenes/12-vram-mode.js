@@ -41,7 +41,7 @@ export const scene = {
 
     // Measured results table
     s.appendChild(rect(40, 195, 840, 155, C.PANEL, 0.5, C.EDGE, 1, 4));
-    s.appendChild(txt(50, 213, 'Measured Results (RTX PRO 6000, full power):', C.KEY, 12, 'bold'));
+    s.appendChild(txt(50, 213, 'Measured Results (RTX PRO 6000, 400W):', C.KEY, 12, 'bold'));
 
     // Table header
     const cols = [50, 140, 260, 390, 520, 650, 780];
