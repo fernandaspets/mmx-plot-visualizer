@@ -56,19 +56,19 @@ export const scene = {
     s.appendChild(txt(710, 165, 'D2D copies (stream k → VRAMBucket)', C.VRAM, 9, 'bold', 'middle'));
     s.appendChild(arrow(600, 175, 820, 175, C.VRAM));
     s.appendChild(txt(710, 195, 'NO PCIe! Zero DMA traffic', C.KEY, 10, 'bold', 'middle'));
-    s.appendChild(txt(710, 215, 'k29 needs ~92 GiB VRAM', C.META, 9, 'normal', 'middle'));
-    s.appendChild(txt(710, 235, 'Only PRO 6000 (96GB) fits k29', C.TEXT, 9, 'normal', 'middle'));
+    s.appendChild(txt(710, 215, 'k29 needs ~70 GiB VRAM', C.META, 9, 'normal', 'middle'));
+    s.appendChild(txt(710, 235, 'PRO 6000 (96GB) fits k29', C.TEXT, 9, 'normal', 'middle'));
 
     s.appendChild(rect(530, 280, 360, 28, C.KEY, 0.06, C.KEY, 1, 4));
-    s.appendChild(txt(710, 298, 'Phase 1: ~12s (2× faster, zero DMA)', C.KEY, 11, 'bold', 'middle'));
+    s.appendChild(txt(710, 298, 'Phase 1: ~21s k29 (2.1× faster, zero DMA)', C.KEY, 11, 'bold', 'middle'));
 
     // Comparison
     s.appendChild(rect(40, 330, 840, 65, C.PANEL, 0.5, C.EDGE, 1, 4));
-    s.appendChild(txt(50, 348, 'Comparison (k27 on RTX 5090):', C.TEXT, 11, 'bold'));
-    s.appendChild(txt(50, 366, 'DMA: 11.5s phase1, 488 GB PCIe traffic', C.DMA, 10, 'normal', 'start', true));
-    s.appendChild(txt(50, 382, 'VRAM: 6.0s phase1, ~0 GB PCIe traffic (2× faster)', C.VRAM, 10, 'normal', 'start', true));
-    s.appendChild(txt(470, 366, 'DMA floor: PCIe4 32 GB/s = 15.3s', C.META, 10, 'normal', 'start', true));
-    s.appendChild(txt(470, 382, 'VRAM: no PCIe floor, pure GPU compute', C.KEY, 10, 'bold', 'start', true));
+    s.appendChild(txt(50, 348, 'Measured (PRO 6000, full power):', C.TEXT, 11, 'bold'));
+    s.appendChild(txt(50, 366, 'k29 DMA: ~45s phase1, 488 GB PCIe', C.DMA, 10, 'normal', 'start', true));
+    s.appendChild(txt(50, 382, 'k29 VRAM: 21.1s phase1, 0 GB PCIe (2.1× faster)', C.VRAM, 10, 'normal', 'start', true));
+    s.appendChild(txt(470, 366, 'k30 VRAM: 60.4s on 2× PRO 6000 (proof found!)', C.VRAM, 10, 'normal', 'start', true));
+    s.appendChild(txt(470, 382, 'k31 VRAM: 168.4s on 4× PRO 6000 (2.1B entries)', C.VRAM, 10, 'normal', 'start', true));
 
     return s;
   },
@@ -90,6 +90,6 @@ export const scene = {
 <h3>VRAM Race Condition (solved)</h3>
 <div class="d">D2D copies must be queued on the SAME stream as compute, BEFORE next bucket's compute overwrites C_out.</div>
 <div class="d">Fix: D2D in main loop (not download_thread) + pre-allocate chunks (cudaMalloc syncs all streams).</div>
-<div class="s">VRAM needs: k27=25 GiB, k28=48 GiB, k29=92 GiB. PRO 6000 (96GB) fits k29.</div>`
+<div class="s">VRAM needs: k27=25 GiB, k28=48 GiB, k29=70 GiB, k30=137 GiB, k31=257 GiB.</div>`
   }
 };

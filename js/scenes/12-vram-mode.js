@@ -5,96 +5,120 @@ import { svg, rect, txt, arrow, line, panel } from '../svg-helpers.js';
 export const scene = {
   name: 'VRAM Mode',
   build() {
-    const W = SVG_W, H = 420;
+    const W = SVG_W, H = 460;
     const s = svg(W, H);
-    s.appendChild(txt(W / 2, 25, 'VRAM Mode: All-GPU Plotting (Zero DMA)', C.KEY, 15, 'bold', 'middle'));
+    s.appendChild(txt(W / 2, 25, 'VRAM Mode: All-GPU Plotting (Zero DMA, Zero Disk)', C.KEY, 15, 'bold', 'middle'));
 
-    // GPU box (large, containing everything)
-    s.appendChild(rect(40, 55, 840, 200, C.VRAM, 0.04, C.VRAM, 2, 8));
-    s.appendChild(txt(60, 75, 'GPU (RTX PRO 6000, 96 GB VRAM)', C.VRAM, 13, 'bold'));
+    // GPU box
+    s.appendChild(rect(40, 50, 840, 130, C.VRAM, 0.04, C.VRAM, 2, 8));
+    s.appendChild(txt(60, 70, 'GPU VRAM — everything stays here', C.VRAM, 13, 'bold'));
 
-    // VRAM bucket layout inside GPU
+    // VRAM bucket layout
     const buckets = [
       { n: 'Y_buckets[2]', sz: '2.1 GiB', c: C.Y, desc: 'sorted Y (uint32)' },
-      { n: 'C_buckets[2]', sz: '60 GiB', c: C.META, desc: `${META_BYTES}B/entry × 2M × 91` },
-      { n: 'PD_buckets[2]', sz: '1.3 GiB', c: C.PD, desc: '5B PD back-pointers' },
-      { n: 'PD1_buckets[10]', sz: '6 GiB', c: C.X, desc: 'proof walk-back data' }
+      { n: 'C_buckets[src]', sz: '30 GiB', c: C.META, desc: `${META_BYTES}B/entry × 8.9M × 64` },
+      { n: 'PD_buckets[2]', sz: '6 GiB', c: C.PD, desc: '5B PD back-pointers' },
+      { n: 'PD1_buckets[10]', sz: '26 GiB', c: C.X, desc: 'proof walk-back data' }
     ];
     buckets.forEach((b, i) => {
-      const x = 60 + (i % 2) * 200;
-      const y = 90 + Math.floor(i / 2) * 55;
-      s.appendChild(rect(x, y, 180, 45, b.c, 0.12, b.c, 1, 3));
-      s.appendChild(txt(x + 90, y + 15, b.n, b.c, 10, 'bold', 'middle'));
-      s.appendChild(txt(x + 90, y + 30, b.sz, C.TEXT, 9, 'normal', 'middle'));
-      s.appendChild(txt(x + 90, y + 42, b.desc, C.TEXT, 7, 'normal', 'middle'));
+      const x = 60 + (i % 2) * 210;
+      const y = 85 + Math.floor(i / 2) * 45;
+      s.appendChild(rect(x, y, 195, 38, b.c, 0.12, b.c, 1, 3));
+      s.appendChild(txt(x + 97, y + 14, b.n, b.c, 10, 'bold', 'middle'));
+      s.appendChild(txt(x + 97, y + 27, b.sz, C.TEXT, 9, 'normal', 'middle'));
+      s.appendChild(txt(x + 97, y + 37, b.desc, C.TEXT, 7, 'normal', 'middle'));
     });
 
-    // D2D flow (internal)
-    s.appendChild(txt(460, 210, 'D2D copies on stream k (before next compute)', C.VRAM, 10, 'bold', 'middle'));
-    s.appendChild(arrow(200, 220, 700, 220, C.VRAM));
+    // D2D flow
+    s.appendChild(txt(520, 120, 'D2D copies on stream k', C.VRAM, 10, 'bold', 'middle'));
+    s.appendChild(arrow(520, 135, 820, 135, C.VRAM));
+    s.appendChild(txt(520, 155, 'NO PCIe! NO disk!', C.KEY, 11, 'bold', 'middle'));
 
     // Working buffers
-    s.appendChild(rect(440, 90, 180, 45, C.F1, 0.08, C.F1, 1, 3));
-    s.appendChild(txt(530, 105, 'Working buffers', C.F1, 9, 'bold', 'middle'));
-    s.appendChild(txt(530, 120, 'Y_out, C_out, PD_out', C.TEXT, 8, 'normal', 'middle'));
-    s.appendChild(txt(530, 132, 'reused per bucket', C.TEXT, 7, 'normal', 'middle'));
+    s.appendChild(rect(520, 70, 170, 35, C.F1, 0.08, C.F1, 1, 3));
+    s.appendChild(txt(605, 82, 'Working buffers', C.F1, 9, 'bold', 'middle'));
+    s.appendChild(txt(605, 96, 'Y_out, C_out, PD_out', C.TEXT, 8, 'normal', 'middle'));
 
-    // Kernel pipeline
-    s.appendChild(rect(440, 145, 180, 50, C.PANEL, 0.6, C.EDGE, 1, 3));
-    s.appendChild(txt(530, 160, 'Kernel chain (per bucket)', C.TEXT, 9, 'bold', 'middle'));
-    s.appendChild(txt(530, 174, 'scatter→sort→match→eval', C.TEXT, 8, 'normal', 'middle'));
-    s.appendChild(txt(530, 188, '→D2D copy to VRAMBucket', C.VRAM, 8, 'bold', 'middle'));
+    // Measured results table
+    s.appendChild(rect(40, 195, 840, 155, C.PANEL, 0.5, C.EDGE, 1, 4));
+    s.appendChild(txt(50, 213, 'Measured Results (RTX PRO 6000, full power):', C.KEY, 12, 'bold'));
 
-    // VRAM requirements table
-    s.appendChild(rect(40, 270, 400, 130, C.PANEL, 0.5, C.EDGE, 1, 4));
-    s.appendChild(txt(50, 288, 'VRAM Requirements:', C.TEXT, 11, 'bold'));
-    const reqs = [
-      { k: 'k27', vram: '~25 GiB', gpu: 'RTX 5090 (32GB) ✓', fits: true },
-      { k: 'k28', vram: '~48 GiB', gpu: 'RTX 5090 (32GB) ✗', fits: false },
-      { k: 'k29', vram: '~92 GiB', gpu: 'PRO 6000 (96GB) ✓', fits: true }
+    // Table header
+    const cols = [50, 140, 260, 390, 520, 650, 780];
+    const headers = ['Config', 'GPUs', 'Phase 1', 'vs DMA', 'VRAM/GPU', 'Disk I/O', 'Proof'];
+    headers.forEach((h, i) => {
+      s.appendChild(txt(cols[i], 232, h, C.TEXT, 10, 'bold'));
+    });
+    s.appendChild(line(50, 238, 870, 238, C.EDGE, 1));
+
+    const results = [
+      { cfg: 'k29 VRAM', gpus: '1× PRO 6000', time: '21.1s', vs: '2.1× faster', vram: '70 GiB', disk: '0 GB', proof: '✓' },
+      { cfg: 'k30 VRAM', gpus: '2× PRO 6000', time: '60.4s', vs: 'new', vram: '68 GiB', disk: '0 GB', proof: '✓ 256 X found' },
+      { cfg: 'k31 VRAM', gpus: '4× PRO 6000', time: '168.4s', vs: 'new', vram: '64 GiB', disk: '0 GB', proof: '✓' },
+      { cfg: 'k29 DMA', gpus: '1× 5090', time: '45s', vs: 'baseline', vram: '—', disk: '~488 GB PCIe', proof: '✓' },
     ];
-    reqs.forEach((r, i) => {
-      const c = r.fits ? C.KEY : '#ff4444';
-      s.appendChild(rect(50, 298 + i * 28, 380, 24, c, 0.06, c, 0.5, 2));
-      s.appendChild(txt(60, 313 + i * 28, r.k, c, 10, 'bold'));
-      s.appendChild(txt(120, 313 + i * 28, r.vram, C.META, 10, 'normal', 'start', true));
-      s.appendChild(txt(250, 313 + i * 28, r.gpu, c, 10, 'normal', 'start', true));
+    results.forEach((r, i) => {
+      const y = 258 + i * 24;
+      const isVram = r.cfg.includes('VRAM');
+      const rowC = isVram ? C.VRAM : C.DMA;
+      s.appendChild(rect(45, y - 14, 830, 22, rowC, 0.04, rowC, 0.3, 2));
+      s.appendChild(txt(cols[0], y, r.cfg, rowC, 10, 'bold'));
+      s.appendChild(txt(cols[1], y, r.gpus, C.TEXT, 10));
+      s.appendChild(txt(cols[2], y, r.time, C.KEY, 10, 'bold'));
+      s.appendChild(txt(cols[3], y, r.vs, isVram ? C.KEY : C.TEXT, 10));
+      s.appendChild(txt(cols[4], y, r.vram, C.META, 10, 'normal', 'start', true));
+      s.appendChild(txt(cols[5], y, r.disk, isVram ? C.KEY : C.DMA, 10, 'bold'));
+      s.appendChild(txt(cols[6], y, r.proof, C.X, 10, 'bold'));
     });
 
-    // Performance comparison
-    s.appendChild(rect(460, 270, 420, 130, C.PANEL, 0.5, C.EDGE, 1, 4));
-    s.appendChild(txt(470, 288, 'Performance (k27 on 5090):', C.TEXT, 11, 'bold'));
-    s.appendChild(rect(470, 298, 400, 24, C.DMA, 0.06, C.DMA, 0.5, 2));
-    s.appendChild(txt(480, 313, 'DMA: 11.5s phase1, 488 GB PCIe', C.DMA, 10, 'normal', 'start', true));
-    s.appendChild(rect(470, 328, 400, 24, C.VRAM, 0.06, C.VRAM, 0.5, 2));
-    s.appendChild(txt(480, 343, 'VRAM: 6.0s phase1, ~0 GB PCIe', C.VRAM, 10, 'bold', 'start', true));
-    s.appendChild(rect(470, 358, 400, 24, C.KEY, 0.06, C.KEY, 0.5, 2));
-    s.appendChild(txt(480, 373, '2× faster. Zero PCIe bottleneck.', C.KEY, 10, 'bold', 'start', true));
+    // VRAM fit table
+    s.appendChild(rect(40, 365, 410, 85, C.PANEL, 0.5, C.EDGE, 1, 4));
+    s.appendChild(txt(50, 383, 'VRAM Fit:', C.TEXT, 11, 'bold'));
+    const fits = [
+      { k: 'k29', total: '70 GiB', fit: '1× PRO 6000 ✓' },
+      { k: 'k30', total: '137 GiB', fit: '2× PRO 6000 ✓ (68 GiB each)' },
+      { k: 'k31', total: '257 GiB', fit: '4× PRO 6000 ✓ (64 GiB each)' },
+    ];
+    fits.forEach((f, i) => {
+      const y = 400 + i * 18;
+      s.appendChild(txt(55, y, f.k, C.VRAM, 10, 'bold'));
+      s.appendChild(txt(100, y, f.total, C.META, 10, 'normal', 'start', true));
+      s.appendChild(txt(180, y, f.fit, C.KEY, 10, 'bold'));
+    });
+
+    // Key insights
+    s.appendChild(rect(470, 365, 410, 85, C.PANEL, 0.5, C.EDGE, 1, 4));
+    s.appendChild(txt(480, 383, 'Key Optimizations:', C.TEXT, 11, 'bold'));
+    s.appendChild(txt(480, 400, '• C_buckets[dst] skipped at t≥N_TABLE (saves 30 GiB)', C.KEY, 9, 'normal'));
+    s.appendChild(txt(480, 415, '• D2D in main loop on stream k (avoids race)', C.KEY, 9, 'normal'));
+    s.appendChild(txt(480, 430, '• Pre-allocate chunks (cudaMalloc syncs streams!)', C.KEY, 9, 'normal'));
+    s.appendChild(txt(480, 445, '• Multi-GPU: per-bucket cudaSetDevice (no P2P needed)', C.KEY, 9, 'normal'));
 
     return s;
   },
   info: {
     t: 'VRAM Mode (All-GPU)',
-    d: 'All data stays on GPU. Zero PCIe DMA. D2D copies replace D2H/H2D.',
-    body: `<div class="k">VRAM mode eliminates the PCIe bottleneck entirely. Everything stays on GPU.</div>
-<h3>Architecture</h3>
-<div class="d">VRAMBucket class: chunks stored as Buffer&lt;uint8_t&gt; with MEM_TYPE_DEVICE (GPU memory)</div>
-<div class="d">upload() = D2D copy from VRAMBucket to GPU working buffer</div>
-<div class="d">copy() = D2D copy from GPU working buffer to VRAMBucket (async, stream k)</div>
-<div class="d">read() = D2H cudaMemcpy (synchronous, for proof lookup only)</div>
-<div class="d">free() = cudaFree all chunks</div>
-<h3>Key Fixes (race conditions)</h3>
-<div class="d">1. D2D copies queued in MAIN LOOP on stream k, before next compute overwrites C_out</div>
-<div class="d">2. Pre-allocate ALL chunks before D2D (cudaMalloc syncs all streams mid-copy!)</div>
+    d: 'All data stays on GPU. Zero PCIe DMA. Zero disk I/O. Multi-GPU for k30/k31.',
+    body: `<div class="k">VRAM mode eliminates both the PCIe and disk bottlenecks. Everything stays on GPU.</div>
+<h3>Measured Results</h3>
+<div class="s">k29 on 1× PRO 6000: 21.1s phase1 (2.1× faster than 45s DMA)</div>
+<div class="s">k30 on 2× PRO 6000: 60.4s phase1 (impossible on 1 GPU — needs 137 GiB)</div>
+<div class="s">k31 on 4× PRO 6000: 168.4s phase1 (impossible on 1-2 GPUs — needs 257 GiB)</div>
+<div class="s">All: zero disk I/O, zero PCIe DMA, proof lookup works</div>
+<h3>How it works</h3>
+<div class="d">VRAMBucket: chunks stored as Buffer&lt;uint8_t&gt; with MEM_TYPE_DEVICE (GPU memory)</div>
+<div class="d">D2D copies on stream k before next compute overwrites working buffers</div>
+<div class="d">Pre-allocate all chunks (cudaMalloc mid-async-copy syncs all streams)</div>
+<div class="d">Multi-GPU: bucket y assigned to GPU (device + y % NSTREAMS % num_devices)</div>
+<h3>Key Fixes</h3>
+<div class="d">1. C_buckets[dst] skipped at t≥N_TABLE — table 9 C output never used (saves 30 GiB)</div>
+<div class="d">2. D2D in main loop, not download_thread (avoids race with next bucket compute)</div>
 <div class="d">3. thread_local g_vram_copy_stream for correct stream ordering</div>
 <div class="d">4. download_thread = no-op for VRAM (avoids double-counting bucket_size)</div>
-<h3>VRAM Requirements</h3>
-<div class="s">C metadata = ${META_BYTES} bytes/entry (N_META=14 × 4B, NOT 14 bytes!)</div>
-<div class="s">k29: ~92 GiB. C dominates: 56B × 2M × 91 × 2(src/dst) = 60 GiB</div>
-<div class="s">k27: ~25 GiB. k28: ~48 GiB.</div>
-<div class="k">2× faster than DMA (6s vs 12s for k27). Zero PCIe traffic.</div>
-<h3>Y9 Sort (critical fix)</h3>
-<div class="d">At t=N_TABLE+1 (Y9 sort), D2D copy must be in the else branch (t > N_TABLE)</div>
-<div class="d">dst = (N_TABLE+1)%2 = 0. Y_buckets[0] holds sorted Y for proof lookup.</div>`
+<h3>Multi-GPU (no P2P needed)</h3>
+<div class="d">Each GPU stores only its own buckets. Bucket y always on same GPU.</div>
+<div class="d">cudaSetDevice in alloc_buckets, pre_alloc, delete_buckets, proof_lookup.</div>
+<div class="d">Works on 5090s (no P2P) — each GPU is self-contained.</div>
+<div class="k">C metadata = ${META_BYTES} bytes/entry (N_META=14 × 4B). Dominates VRAM.</div>`
   }
 };
