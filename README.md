@@ -1,6 +1,6 @@
 # MMX Plot Visualizer
 
-Interactive 3D visualization of the MMX Proof-of-Space plotting process, inspired by [bbycroft.net/llm](https://bbycroft.net/llm).
+Interactive SVG visualization of the MMX Proof-of-Space plotting process. Built for deep technical understanding through visual exploration.
 
 ## Run
 
@@ -9,46 +9,103 @@ cd ~/mmx-plot-visualizer
 python3 serve.py [port]    # default port 8765
 ```
 
-Then open `http://localhost:8765` in your browser.
+Then open `http://localhost:port` in your browser.
 
-## What it shows
+## Architecture (Modular)
 
-A 3D scene with 9 tables stacked vertically, representing the MMX PoSpace plot pipeline:
+```
+mmx-plot-visualizer/
+├── index.html              # Entry point (loads ES modules)
+├── css/
+│   └── style.css           # Dark theme, animations, responsive
+├── js/
+│   ├── constants.js        # k=29 params, colors, entry counts
+│   ├── svg-helpers.js      # SVG creation utilities (el, rect, txt, line, arrow, circle, grid)
+│   ├── scene-manager.js     # Navigation, auto-play, rendering
+│   └── scenes/
+│       ├── 01-plot-file.js     # Plot file structure (14.6 GB layout)
+│       ├── 02-f1.js            # F1: memory-hard PoW (Table 1)
+│       ├── 03-match-eval.js     # Match + Eval: core operation (Y,Y+1 → SHA512)
+│       ├── 04-tables.js        # Tables 1-9: forest of 536M binary trees
+│       ├── 05-bucketing.js     # Two-level bucket structure (64 × 16384)
+│       ├── 06-gpu-pipeline.js  # GPU pipeline: DMA vs VRAM mode
+│       ├── 07-phase2-remap.js  # Phase 2: position compaction (mark_used → remap)
+│       ├── 08-phase2-parks.js  # Phase 2: park encoding (Y/PD/X parks, ANS)
+│       ├── 09-binary-tree.js   # Binary tree proof structure (depth 8)
+│       ├── 10-proof-lookup.js # Proof lookup: Y scan → PD walk → X park
+│       ├── 11-verification.js  # Proof verification: recompute tree from X
+│       ├── 12-vram-mode.js     # VRAM mode: all-GPU plotting (zero DMA)
+│       ├── 13-proof-anatomy.js # Proof anatomy: quality vs score, three gates
+│       └── 14-hash-chain.js    # Hash chain: seed → plot_id → challenge
+├── serve.py                 # Simple HTTP server
+└── .github/workflows/deploy.yml  # GitHub Pages deployment
+```
 
-- **Table 1 (F1)**: Memory-hard PoW — `gen_mem_array` (32 rounds), `calc_mem_hash` (256-iter random access), `scatter_t1`
-- **Tables 2-9**: `match_p1` (find Y, Y+1 pairs) → `eval_p1_tx` (SHA512 hash, scatter to next table)
-- **Phase 2**: Park encoding (Y delta parks, PD bit-packed parks, X parks) → plot file
-- **Proof Lookup**: Challenge → Y scan (16-wide window) → PD walk (9→2) → 256 X values
+### Adding/Editing Scenes
 
-## Controls
+Each scene is a standalone ES module exporting a `scene` object:
 
-- **Drag**: Rotate camera
-- **Scroll**: Zoom
-- **Click**: Click on table spheres to inspect data structures and bit layouts
-- **▶ Walkthrough**: Auto-play 13-step walkthrough with camera animation
-- **Phase 1 / Phase 2 / Proof Lookup**: Jump to specific sections
-- **⏸ Pause**: Pause particle animations
+```js
+export const scene = {
+  name: 'Scene Title',
+  build() {
+    // Returns an SVG element
+    const s = svg(W, H);
+    // ... build SVG ...
+    return s;
+  },
+  info: {
+    t: 'Info Title',
+    d: 'Short description',
+    body: `<h3>Section</h3><div class="d">Details</div>`
+  }
+};
+```
+
+To add a new scene: create `js/scenes/NN-name.js`, import it in `index.html`, add to `scenes` array.
+
+## 14 Scenes
+
+| # | Scene | Key Concepts |
+|---|-------|-------------|
+| 1 | Plot File | 14.6 GB layout: Y(1%) + PD[0-6](79%) + X(20%) |
+| 2 | F1: Table 1 | Memory-hard PoW: 4KB memory, 256-iter random access, SHA512 |
+| 3 | Match + Eval | (Y, Y+1) → SHA512 → new entry + PD back-pointer (40-bit) |
+| 4 | Tables 1-9 | Forest of 536M binary trees. NOT a funnel. src/dst double-buffering |
+| 5 | Bucketing | Two-level: 64 main × 16384 sub-buckets. Parallel sorting |
+| 6 | GPU Pipeline | DMA mode (PCIe bottleneck) vs VRAM mode (zero DMA, 2× faster) |
+| 7 | Phase 2: Remap | mark_used bitfield → popcount → compact 29-bit indices |
+| 8 | Phase 2: Parks | Delta-encode → ANS-encode → park file. Y/PD/X park formats |
+| 9 | Binary Tree | Depth-8 perfect tree: 1 root → 256 X leaves. 7 PD doublings |
+| 10 | Proof Lookup | Y scan (binary search) → PD walk (7 levels) → X park read |
+| 11 | Verification | Recompute F1→F9 from 256 X values. O(256) = milliseconds |
+| 12 | VRAM Mode | All-GPU plotting. VRAMBucket, D2D copies, race conditions |
+| 13 | Proof Anatomy | Quality hash (threshold) vs score hash (block competition). Three gates |
+| 14 | Hash Chain | plot_id derivation, plot_challenge, plot_filter vs post_filter |
 
 ## Color Legend
 
 | Color | Data Type |
 |-------|-----------|
-| 🔴 Red | F1 / Challenge |
+| 🔴 Red | F1 / PoW / seed |
 | 🔵 Cyan | Y values (sorted) |
-| 🟠 Orange | C / Meta (hash output) |
-| 🟣 Purple | PD back-pointers (30-bit pos + 5-bit delta) |
+| 🟠 Orange | C / Meta (56 bytes = N_META×4) |
+| 🟣 Purple | PD back-pointers (40-bit: position[30] + delta[5]) |
 | 🟢 Green | X values (proof output) |
-| ⚪ Gray | Match pairs (Y, Y+1) |
+| 🟡 Yellow | CUDA streams / data flow |
+| 🟠 Orange-red | VRAM / GPU memory |
+| 🔵 Blue | DMA / PCIe |
+| 💗 Pink | Quality hash (threshold gate) |
+| 🔷 Light blue | Score hash (block competition) |
+| 🟢 Teal | Key insights |
 
 ## Technical
 
-- Single HTML file, no build step
-- Three.js r160 loaded from CDN (ES modules)
-- InstancedMesh for bucket grids (256 buckets as 16×16 grid)
-- Particle system for animated data flow between tables
-- Raycasting for click-to-inspect
-- All bit format documentation from kernel source analysis (`Node_phase1.cu`)
+- ES modules (no build step, works on GitHub Pages)
+- Pure SVG visualization (no canvas, no WebGL)
+- CSS animations (pulse, flow, fade-in, glow)
+- All data from MMX CUDA plotter source analysis
 
 ## Data Sources
 
-All bit layouts and kernel descriptions are derived from the actual MMX CUDA plotter source code analysis, logged in `~/mmx-research/research.db` (plot_format table, entries 9-14).
+All bit layouts, kernel descriptions, and performance data derived from actual MMX CUDA plotter source code analysis.
