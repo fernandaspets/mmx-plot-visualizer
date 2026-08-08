@@ -44,7 +44,7 @@ export const scene = {
     s.appendChild(txt(40, 285, 'Phases:', C.TEXT, 11, 'bold'));
     s.appendChild(txt(100, 285, '①–④ Phase 1 (build tables)   ⑤ Phase 2+3 (compress to disk)   ⑥–⑦ farming (per challenge)   ⑧ consensus (every node)', C.TEXT, 11));
     s.appendChild(txt(40, 308, 'Shortcuts:', C.TEXT, 11, 'bold'));
-    s.appendChild(txt(110, 308, '← → navigate · space = autoplay · #N in the URL deep-links a scene · scene 15 = live playground', C.TEXT, 11));
+    s.appendChild(txt(110, 308, '← → navigate · space = autoplay · #N in the URL deep-links a scene · scene 16 = playground · scene 17 = verify a real mainnet block', C.TEXT, 11));
 
     return s;
   },
