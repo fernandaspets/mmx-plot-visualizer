@@ -16,14 +16,26 @@ export class SceneManager {
     this.bindControls();
     this.tick = this.tick.bind(this);
     setInterval(this.tick, 500);
-    this.show(0);
+
+    // Deep-link: #N opens scene N (1-based)
+    const h = parseInt((location.hash || '').replace('#', ''), 10);
+    const start = (h >= 1 && h <= scenes.length) ? h - 1 : 0;
+    this.show(start);
+    if (h >= 1) this.pause();
+    window.addEventListener('hashchange', () => {
+      const n = parseInt((location.hash || '').replace('#', ''), 10);
+      if (n >= 1 && n <= scenes.length && n - 1 !== this.cur) {
+        this.show(n - 1);
+        this.pause();
+      }
+    });
   }
 
   buildNav() {
     this.scenes.forEach((s, i) => {
       const d = document.createElement('div');
       d.className = 'dot';
-      d.dataset.name = s.name;
+      d.dataset.name = (i + 1) + '. ' + s.name;
       d.onclick = () => { this.show(i); this.pause(); };
       this.navEl.appendChild(d);
     });
@@ -44,6 +56,21 @@ export class SceneManager {
       this.show(0);
       this.pause();
     };
+    // Keyboard: arrows navigate, space toggles autoplay
+    document.addEventListener('keydown', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      if (e.key === 'ArrowLeft') {
+        this.show((this.cur - 1 + this.scenes.length) % this.scenes.length);
+        this.pause();
+      } else if (e.key === 'ArrowRight') {
+        this.show((this.cur + 1) % this.scenes.length);
+        this.pause();
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        this.playing = !this.playing;
+        this.updatePlayBtn();
+      }
+    });
   }
 
   pause() {
@@ -60,12 +87,24 @@ export class SceneManager {
   show(i) {
     this.cur = i;
     const sc = this.scenes[i];
+    sc.manager = this;   // scenes can jump: sc.manager.show(n)
 
-    // Build SVG
-    const svgEl = sc.build();
-    const tmp = document.createElement('div');
-    tmp.appendChild(svgEl);
-    this.view.innerHTML = '<div class="ani">' + tmp.innerHTML + '</div>';
+    // Update header: scene name + progress
+    const tEl = document.querySelector('.bar .t');
+    if (tEl) tEl.textContent = `MMX PoSpace Plot — Reference Spec (k=29)  ·  ${i + 1}/${this.scenes.length}: ${sc.name}`;
+    const pb = document.getElementById('progress');
+    if (pb) pb.style.width = ((i + 1) / this.scenes.length * 100) + '%';
+
+    // Deep-link hash (no history spam)
+    history.replaceState(null, '', '#' + (i + 1));
+
+    // Build content — appendChild (NOT innerHTML round-trip) so event listeners survive
+    const el = sc.build();
+    const wrap = document.createElement('div');
+    wrap.className = 'ani';
+    wrap.appendChild(el);
+    this.view.innerHTML = '';
+    this.view.appendChild(wrap);
 
     // Build info
     this.infoEl.innerHTML =
@@ -79,6 +118,9 @@ export class SceneManager {
       dots[j].className = j === i ? 'on' : (j < i ? 'done' : '');
     }
     this.stTimer = 0;
+
+    // Interactive scenes pause autoplay so the user isn't yanked away
+    if (sc.interactive) this.pause();
   }
 
   tick() {

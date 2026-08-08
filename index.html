@@ -19,12 +19,14 @@
 
 <div id="view"></div>
 <div class="step-nav" id="nav"></div>
+<div id="progress" style="position:fixed;left:0;top:0;height:2px;background:#20b898;width:0;transition:width .3s"></div>
 <div class="info" id="info"></div>
 
 <script type="module">
 import { SceneManager } from './js/scene-manager.js';
 
 // Import all scenes
+import { scene as s00 } from './js/scenes/00-map.js';
 import { scene as s01 } from './js/scenes/01-plot-file.js';
 import { scene as s02 } from './js/scenes/02-f1.js';
 import { scene as s03 } from './js/scenes/03-match-eval.js';
@@ -39,8 +41,9 @@ import { scene as s11 } from './js/scenes/11-verification.js';
 import { scene as s12 } from './js/scenes/12-vram-mode.js';
 import { scene as s13 } from './js/scenes/13-proof-anatomy.js';
 import { scene as s14 } from './js/scenes/14-hash-chain.js';
+import { scene as s15 } from './js/scenes/15-playground.js';
 
-const scenes = [s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12, s13, s14];
+const scenes = [s00, s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12, s13, s14, s15];
 
 const manager = new SceneManager(
   scenes,
